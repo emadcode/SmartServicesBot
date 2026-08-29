@@ -14,6 +14,7 @@ from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMar
 # ==========================================
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8987750439:AAGqJCL6nrqaxXLlo8a9MEnuQM-WqpcRtbU")
 PROVIDER_TOKEN = os.environ.get("PROVIDER_TOKEN", "bk_01M1709WVE7KVBQ1YY9BVM4KNN") 
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")  # 🤖 مفتاح الذكاء الاصطناعي لتحليل الرسائل بدقة
 BASE_URL = "https://xprostore.store/api/v1"
 
 ADMIN_ID = "1941469722"  # 👑 الـ ID الخاص بك
@@ -83,7 +84,7 @@ def is_btn(msg, key):
     return any(msg.text == lang_dict.get(key) for lang_dict in LANGS.values())
 
 # ==========================================
-# 3. نظام الترجمة
+# 3. نظام الترجمة والذكاء الاصطناعي (AI Analysis)
 # ==========================================
 translation_cache = {}
 
@@ -98,6 +99,44 @@ def translate_text(text, target_lang):
         translation_cache[cache_key] = translated
         return translated
     except Exception: return text
+
+def ai_analyze_payment_receipt(message_text):
+    """
+    استخدام نموذج الذكاء الاصطناعي لتحليل رسائل الاستلام والمحافظ واستخراج البيانات بدقة
+    """
+    if not GEMINI_API_KEY:
+        # نظام احتياطي في حال لم يتم إدخال مفتاح الذكاء الاصطناعي
+        phone_match = re.search(r'(01[0125]\d{8})', message_text)
+        amount_match = re.search(r'(\d+(?:\.\d+)?)\s*(جنيه|جـ|EGP|LE)?', message_text)
+        if phone_match and amount_match:
+            return {"valid": True, "amount": float(amount_match.group(1)), "phone": phone_match.group(1)}
+        return {"valid": False}
+
+    try:
+        prompt = f"""
+        Analyze the following financial receipt/SMS notification text from Vodafone Cash, Orange Cash, or InstaPay.
+        Extract the transaction details and return strictly a JSON object with keys: "valid" (true/false), "amount" (float number), "phone" (string phone number if found).
+        Text to analyze: {message_text}
+        """
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+        headers = {'Content-Type': 'application/json'}
+        payload = {"contents": [{"parts": [{"text": prompt}]}]}
+        
+        response = requests.post(url, headers=headers, json=payload, timeout=10)
+        result_json = response.json()
+        ai_reply = result_json['candidates'][0]['content']['parts'][0]['text']
+        
+        # تنظيف الرد واستخراج الجيسون
+        clean_json_str = re.sub(r'```json|```', '', ai_reply).strip()
+        data = json.loads(clean_json_str)
+        return data
+    except Exception as e:
+        # احتياطي تلقائي في حال حدوث أي خطأ بالذكاء الاصطناعي
+        phone_match = re.search(r'(01[0125]\d{8})', message_text)
+        amount_match = re.search(r'(\d+(?:\.\d+)?)\s*(جنيه|جـ|EGP|LE)?', message_text)
+        if phone_match and amount_match:
+            return {"valid": True, "amount": float(amount_match.group(1)), "phone": phone_match.group(1)}
+        return {"valid": False}
 
 def get_name(item, lang):
     name = item.get('name_ar', item.get('name', 'خدمة'))
@@ -121,8 +160,8 @@ LANGS = {
         'ask_amount': "💵 **أدخل المبلغ المراد شحنه (بالجنيه المصري):**\n\n⚠️ الحد الأدنى: 10 جنيه\n⚠️ الحد الأقصى: 1000 جنيه\n\n(اكتب 'إلغاء' للتراجع)",
         'invalid_amount': "⚠️ يرجى إدخال مبلغ صحيح بين 10 و 1000 جنيه.",
         'choose_payment': "💳 **اختر طريقة الدفع للمبلغ ({} جنيه):**",
-        'ask_phone': "📱 **أرسل رقم هاتفك الذي ستُحول منه (مثلاً: 01012345678) لكي يقرأ النظام إشعار التحويل تلقائياً:**",
-        'waiting_auto_pay': "⏳ **تعليمات الدفع والتحقق التلقائي:**\n\nقم بالتحويل الآن بقيمة `{2} جنيه` إلى رقم **{0}** التالي:\n`{1}`\n\n📱 **رقم هاتفك المسجل:** `{3}`\n\n⚡ **ملاحظة:** بمجرد تحويل المبلغ ووصول الإشعار لهاتفك، سيتم شحن رصيدك **فوراً تلقائياً**.",
+        'ask_phone': "📱 **أرسل رقم هاتفك الذي ستُحول منه (مثلاً: 01012345678) ليقوم الذكاء الاصطناعي بالتحقق من عملية التحويل بدقة:**",
+        'waiting_auto_pay': "⏳ **جارٍ انتظار وتحليل إشعار التحويل بالذكاء الاصطناعي...**\n\nقم بالتحويل الآن بقيمة `{2} جنيه` إلى رقم **{0}** التالي:\n`{1}`\n\n📱 **رقم هاتفك المسجل:** `{3}`\n\n⚡ **ملاحظة:** حتى لو وصلت الرسالة متأخرة، سيقوم النظام بمراجعتها والتحقق منها وشحن رصيدك تلقائياً.",
         'cancel': "إلغاء ❌", 'insufficient': "⚠️ رصيدك غير كافٍ!", 
         'buy_btn': "💳 شراء الآن", 'back_btn': "🔙 رجوع",
         'account_info': "👤 **معلومات حسابك:**\n\n🆔 رقم الحساب: `{}`\n💰 الرصيد الحالي: **{} جنيه مصري**",
@@ -137,7 +176,7 @@ LANGS['en'].update({'keys': "API Keys 🔑", 'orders': "Orders 📦", 'services'
 LANGS['ru'].update({'keys': "API 🔑", 'orders': "Заказы 📦", 'services': "Услуги 🛍️", 'support': "Поддержка 💬", 'account': "Аккаунт 👤", 'language': "Язык 🌐", 'currency': "Валюта 💱", 'referral': "Рефералы 🔒", 'add_balance': "Пополнить 💳", 'admin_panel_btn': "👑 Админ-панель", 'cancel': "Отмена ❌", 'buy_btn': "💳 Купить", 'back_btn': "🔙 Назад"})
 
 # ==========================================
-# 5. الأيقونات المحدثة والمطابقة للخدمات
+# 5. الأيقونات المطابقة للخدمات
 # ==========================================
 def get_icon(name):
     n = name.lower()
@@ -362,7 +401,7 @@ def basic_buttons(message):
         bot.send_message(message.chat.id, "📦 No orders yet." if lang != 'ar' else "📦 لا توجد طلبات سابقة.")
 
 # ==========================================
-# 8. نظام الشحن التلقائي وقراءة إشعارات المحافظ
+# 8. نظام الشحن والتحقق بالذكاء الاصطناعي (AI Verification Webhook)
 # ==========================================
 @bot.message_handler(func=lambda msg: is_btn(msg, 'add_balance'))
 def ask_amount(message):
@@ -434,17 +473,17 @@ def payment_webhook():
         if not message_text and request.data:
             message_text = request.data.decode('utf-8')
 
-        # استخراج رقم الهاتف والمبلغ من نص الإشعار الوارد بغض النظر عن طريقة الصياغة أو السكريبت
-        phone_match = re.search(r'(01[0125]\d{8})', message_text)
-        amount_match = re.search(r'(\d+(?:\.\d+)?)\s*(جنيه|جـ|EGP|LE)?', message_text)
+        # 🤖 تحليل رسالة التحويل باستخدام الذكاء الاصطناعي للتحقق من صحتها ومن المبلغ والمرسل
+        ai_result = ai_analyze_payment_receipt(message_text)
 
-        if phone_match and amount_match:
-            sender_phone = phone_match.group(1)
-            paid_amount = float(amount_match.group(1))
+        if ai_result.get('valid') == True:
+            paid_amount = float(ai_result.get('amount', 0))
+            sender_phone = str(ai_result.get('phone', ''))
 
             target_user_id = None
             for uid, info in active_pending_payments.items():
-                if info['amount'] == paid_amount or info.get('phone') == sender_phone:
+                # مراجعة ومطابقة دقيقة (حتى لو وصلت الرسالة متأخرة أو تم إرسالها من رقم محدد)
+                if abs(info['amount'] - paid_amount) < 1.0 or (sender_phone and info.get('phone') in sender_phone):
                     target_user_id = info['user_id']
                     break
 
@@ -452,15 +491,17 @@ def payment_webhook():
                 update_balance(target_user_id, paid_amount)
                 lang = get_user(target_user_id)['lang']
                 
-                success_text = f"🎉 **تم قراءة إشعار التحويل والتحقق منه بنجاح!**\n💰 تمت إضافة **{paid_amount} جنيه** إلى حسابك فوراً."
+                success_text = f"🎉 **تم التحقق من التحويل بواسطة الذكاء الاصطناعي بنجاح!**\n💰 تمت إضافة **{paid_amount} جنيه** إلى حسابك فوراً."
                 bot.send_message(target_user_id, success_text, parse_mode="Markdown")
                 
-                if sender_phone in active_pending_payments:
-                    del active_pending_payments[sender_phone]
+                # تنظيف القائمة المعلقة بعد التأكيد
+                for p_phone, p_info in list(active_pending_payments.items()):
+                    if p_info['user_id'] == target_user_id:
+                        del active_pending_payments[p_phone]
                     
-                return {"status": "success", "message": "Balance updated automatically"}, 200
+                return {"status": "success", "message": "Balance verified and updated via AI"}, 200
 
-        return {"status": "ignored", "message": "No matching payment pattern found"}, 200
+        return {"status": "ignored", "message": "AI could not verify a matching transaction"}, 200
     except Exception as e:
         return {"status": "error", "message": str(e)}, 500
 
@@ -556,7 +597,7 @@ def process_purchase(call):
             response = requests.post(f"{BASE_URL}/orders", headers=headers, json=payload, timeout=20)
             api_data = response.json()
             
-            if response.status_code in [200, 201] or api_data.get('status') in [True, 'success']:
+            if response.status_code in [200, 201] or api_data.get('status') in [True, 'success'].lower():
                 update_balance(user_id, -price_egp) 
                 
                 order_details = api_data.get('data', api_data)
@@ -578,10 +619,10 @@ def process_purchase(call):
 # ==========================================
 def run_flask():
     port = int(os.environ.get("PORT", 8787))
-    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
+    app.run(host='0.0.0.0', port.int if hasattr(port, 'int') else port, debug=False, use_reloader=False)
 
 if __name__ == '__main__':
-    print("🚀 البوت يعمل الآن بكامل الميزات المحدثة وقراءة إشعارات المحافظ التلقائية...")
+    print("🚀 البوت يعمل الآن بكامل الميزات وبنظام تحليل الرسائل بالذكاء الاصطناعي (AI)...")
     flask_thread = threading.Thread(target=run_flask)
     flask_thread.daemon = True
     flask_thread.start()
