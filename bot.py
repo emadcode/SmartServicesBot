@@ -19,7 +19,8 @@ BASE_URL = "https://xprostore.store/api/v1"
 ADMIN_ID = "1941469722"  # 👑 الـ ID الخاص بك
 ADMIN_USERNAME = "@emadabdelhailm" 
 
-PAYMENT_NUMBER = "01028835231" 
+PAYMENT_NUMBER = "01028835231"        # رقم فودافون كاش
+ORANGE_NUMBER = "01285317443"        # رقم أورانج كاش
 USDT_ADDRESS = "TYourUSDTWalletAddressTRC20Here" 
 
 DOLLAR_PRICE_EGP = 50  
@@ -120,8 +121,8 @@ LANGS = {
         'ask_amount': "💵 **أدخل المبلغ المراد شحنه (بالجنيه المصري):**\n\n⚠️ الحد الأدنى: 10 جنيه\n⚠️ الحد الأقصى: 1000 جنيه\n\n(اكتب 'إلغاء' للتراجع)",
         'invalid_amount': "⚠️ يرجى إدخال مبلغ صحيح بين 10 و 1000 جنيه.",
         'choose_payment': "💳 **اختر طريقة الدفع للمبلغ ({} جنيه):**",
-        'ask_phone': "📱 **أرسل رقم هاتفك الذي ستُحول منه (مثلاً: 01012345678) لكي يتحقق النظام تلقائياً من وصول التحويل:**",
-        'waiting_auto_pay': "⏳ **جارٍ انتظار وصول التحويل تلقائياً...**\nقم بالتحويل الآن على الرقم التالي، وسيقوم النظام بإضافة الرصيد **فوراً دون أي مراجعة**: ",
+        'ask_phone': "📱 **أرسل رقم هاتفك الذي ستُحول منه (مثلاً: 01012345678) لكي يقرأ النظام إشعار التحويل تلقائياً:**",
+        'waiting_auto_pay': "⏳ **جارٍ انتظار قراءة إشعار التحويل (فودافون/أورانج/انستا باي)...**\n\nقم بالتحويل الآن بقيمة `{2} جنيه` إلى رقم **{0}** التالي:\n`{1}`\n\n📱 **رقم هاتفك المسجل:** `{3}`\n\n⚡ **ملاحظة:** بمجرد وصول رسالة التحويل لهاتفك، سيتم شحن رصيدك **فوراً تلقائياً**.",
         'cancel': "إلغاء ❌", 'insufficient': "⚠️ رصيدك غير كافٍ!", 
         'buy_btn': "💳 شراء الآن", 'back_btn': "🔙 رجوع",
         'account_info': "👤 **معلومات حسابك:**\n\n🆔 رقم الحساب: `{}`\n💰 الرصيد الحالي: **{} جنيه مصري**",
@@ -212,7 +213,6 @@ def admin_callbacks(call):
         msg = bot.send_message(call.message.chat.id, "👤 **أدخل يوزر المستخدم لإزالة الرصيد منه (مثلاً: @username):**\n\n(اكتب 'إلغاء' للتراجع)", parse_mode="Markdown")
         bot.register_next_step_handler(msg, ask_username_for_removal)
 
-# --- معالجة إضافة الرصيد ---
 def ask_username_for_balance(message):
     if str(message.chat.id) != str(ADMIN_ID): return
     if message.text.strip() == 'إلغاء':
@@ -249,7 +249,6 @@ def execute_admin_balance_add(message, target_uid):
     except ValueError:
         bot.send_message(message.chat.id, "⚠️ يرجى إدخال رقم صحيح للمبلغ.")
 
-# --- معالجة إزالة الرصيد ---
 def ask_username_for_removal(message):
     if str(message.chat.id) != str(ADMIN_ID): return
     if message.text.strip() == 'إلغاء':
@@ -278,8 +277,6 @@ def execute_admin_balance_remove(message, target_uid):
         amount = float(message.text.strip())
         db = load_db()
         current_balance = db[target_uid].get('balance', 0.0)
-        
-        # خصم المبلغ (مع التأكد من عدم نزول الرصيد تحت الصفر)
         new_balance = max(0.0, current_balance - amount)
         db[target_uid]['balance'] = round(new_balance, 2)
         save_db(db)
@@ -341,7 +338,7 @@ def choose_language(message):
 @bot.callback_query_handler(func=lambda call: call.data.startswith('lang_'))
 def set_language(call):
     new_lang = call.data.split('_')[1]
-    set_lang(call.message.chat.id, new_lang)
+    set_language(call.message.chat.id, new_lang)
     bot.answer_callback_query(call.id, "✅")
     bot.delete_message(call.message.chat.id, call.message.message_id)
     lang = get_user(call.message.chat.id, call.from_user.username)['lang']
@@ -360,7 +357,7 @@ def basic_buttons(message):
         bot.send_message(message.chat.id, "📦 No orders yet." if lang != 'ar' else "📦 لا توجد طلبات سابقة.")
 
 # ==========================================
-# 8. نظام الشحن التلقائي (Webhook)
+# 8. نظام الشحن التلقائي وقراءة إشعارات (فودافون/أورانج/انستا باي)
 # ==========================================
 @bot.message_handler(func=lambda msg: is_btn(msg, 'add_balance'))
 def ask_amount(message):
@@ -384,6 +381,7 @@ def process_amount(message):
     user_payment_data[message.chat.id] = {'amount': amount_egp}
     markup = InlineKeyboardMarkup(row_width=1).add(
         InlineKeyboardButton("Vodafone Cash 🔴", callback_data="pay_vf"),
+        InlineKeyboardButton("Orange Cash 🟠", callback_data="pay_orange"),
         InlineKeyboardButton("InstaPay 🏦", callback_data="pay_insta")
     )
     bot.send_message(message.chat.id, LANGS[lang]['choose_payment'].format(amount_egp), reply_markup=markup, parse_mode="Markdown")
@@ -411,20 +409,29 @@ def wait_for_auto_payment(message):
         "amount": data['amount']
     }
 
-    text = f"{LANGS[lang]['waiting_auto_pay']}`{PAYMENT_NUMBER}`\n\n📱 **رقم هاتفك المسجل:** `{sender_phone}`\n💰 **المبلغ:** `{data['amount']} جنيه`\n\n*(سيتم شحن رصيدك تلقائياً فور وصول التحويل)*"
+    chosen_method = data.get('method', 'vf')
+    if chosen_method == 'orange':
+        wallet_name, target_wallet_num = "Orange Cash", ORANGE_NUMBER
+    elif chosen_method == 'vf':
+        wallet_name, target_wallet_num = "Vodafone Cash", PAYMENT_NUMBER
+    else:
+        wallet_name, target_wallet_num = "InstaPay", PAYMENT_NUMBER
+
+    text = LANGS[lang]['waiting_auto_pay'].format(wallet_name, target_wallet_num, data['amount'], sender_phone)
     bot.send_message(user_id, text, parse_mode="Markdown", reply_markup=main_menu(user_id, lang))
 
 @app.route('/w/6oo6rETS2B4Ws1KG7oXl', methods=['POST', 'GET'])
 def payment_webhook():
     try:
         incoming_data = request.json if request.is_json else request.form
-        message_text = incoming_data.get('message', '') or str(incoming_data)
+        message_text = incoming_data.get('message', '') or incoming_data.get('text', '') or str(incoming_data)
         
         if not message_text and request.data:
             message_text = request.data.decode('utf-8')
 
+        # 🔍 استخراج رقم الهاتف والمبلغ من نص الإشعار الوارد بغض النظر عن طريقة صياغته
         phone_match = re.search(r'(01[0125]\d{8})', message_text)
-        amount_match = re.search(r'(\d+)\s*(جنيه|جـ|EGP)?', message_text)
+        amount_match = re.search(r'(\d+(?:\.\d+)?)\s*(جنيه|جـ|EGP|LE)?', message_text)
 
         if phone_match and amount_match:
             sender_phone = phone_match.group(1)
@@ -432,7 +439,8 @@ def payment_webhook():
 
             target_user_id = None
             for uid, info in active_pending_payments.items():
-                if info['amount'] == paid_amount:
+                # التحقق من تطابق رقم الهاتف أو قيمة المبلغ المعلق
+                if info['amount'] == paid_amount or info.get('phone') == sender_phone:
                     target_user_id = info['user_id']
                     break
 
@@ -440,13 +448,13 @@ def payment_webhook():
                 update_balance(target_user_id, paid_amount)
                 lang = get_user(target_user_id)['lang']
                 
-                success_text = f"🎉 **تم التحقق من التحويل تلقائياً!**\n💰 تمت إضافة **{paid_amount} جنيه** إلى حسابك بنجاح."
+                success_text = f"🎉 **تم قراءة إشعار التحويل بنجاح!**\n💰 تمت إضافة **{paid_amount} جنيه** إلى رصيدك فوراً."
                 bot.send_message(target_user_id, success_text, parse_mode="Markdown")
                 
                 if sender_phone in active_pending_payments:
                     del active_pending_payments[sender_phone]
                     
-                return {"status": "success", "message": "Balance updated automatically"}, 200
+                return {"status": "success", "message": "Balance updated via notification script"}, 200
 
         return {"status": "ignored", "message": "No matching payment pattern found"}, 200
     except Exception as e:
@@ -569,7 +577,7 @@ def run_flask():
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 if __name__ == '__main__':
-    print("🚀 البوت يعمل الآن مع ميزة إضافة وإزالة الرصيد للمستخدمين بكفاءة...")
+    print("🚀 البوت يعمل الآن بكامل الميزات وبنظام قراءة سكريبت إشعارات المحافظ (فودافون/أورانج/انستا باي)...")
     flask_thread = threading.Thread(target=run_flask)
     flask_thread.daemon = True
     flask_thread.start()
