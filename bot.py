@@ -122,7 +122,7 @@ LANGS = {
         'invalid_amount': "⚠️ يرجى إدخال مبلغ صحيح بين 10 و 1000 جنيه.",
         'choose_payment': "💳 **اختر طريقة الدفع للمبلغ ({} جنيه):**",
         'ask_phone': "📱 **أرسل رقم هاتفك الذي ستُحول منه (مثلاً: 01012345678) لكي يقرأ النظام إشعار التحويل تلقائياً:**",
-        'waiting_auto_pay': "⏳ **جارٍ انتظار قراءة إشعار التحويل (فودافون/أورانج/انستا باي)...**\n\nقم بالتحويل الآن بقيمة `{2} جنيه` إلى رقم **{0}** التالي:\n`{1}`\n\n📱 **رقم هاتفك المسجل:** `{3}`\n\n⚡ **ملاحظة:** بمجرد وصول رسالة التحويل لهاتفك، سيتم شحن رصيدك **فوراً تلقائياً**.",
+        'waiting_auto_pay': "⏳ **تعليمات الدفع والتحقق التلقائي:**\n\nقم بالتحويل الآن بقيمة `{2} جنيه` إلى رقم **{0}** التالي:\n`{1}`\n\n📱 **رقم هاتفك المسجل:** `{3}`\n\n⚡ **ملاحظة:** بمجرد تحويل المبلغ ووصول الإشعار لهاتفك، سيتم شحن رصيدك **فوراً تلقائياً**.",
         'cancel': "إلغاء ❌", 'insufficient': "⚠️ رصيدك غير كافٍ!", 
         'buy_btn': "💳 شراء الآن", 'back_btn': "🔙 رجوع",
         'account_info': "👤 **معلومات حسابك:**\n\n🆔 رقم الحساب: `{}`\n💰 الرصيد الحالي: **{} جنيه مصري**",
@@ -137,13 +137,18 @@ LANGS['en'].update({'keys': "API Keys 🔑", 'orders': "Orders 📦", 'services'
 LANGS['ru'].update({'keys': "API 🔑", 'orders': "Заказы 📦", 'services': "Услуги 🛍️", 'support': "Поддержка 💬", 'account': "Аккаунт 👤", 'language': "Язык 🌐", 'currency': "Валюта 💱", 'referral': "Рефералы 🔒", 'add_balance': "Пополнить 💳", 'admin_panel_btn': "👑 Админ-панель", 'cancel': "Отмена ❌", 'buy_btn': "💳 Купить", 'back_btn': "🔙 Назад"})
 
 # ==========================================
-# 5. الأيقونات والقوائم
+# 5. الأيقونات المحدثة والمطابقة للخدمات
 # ==========================================
 def get_icon(name):
     n = name.lower()
-    if any(x in n for x in ['gpt', 'جيميناي', 'ai']): return '🤖'
-    if any(x in n for x in ['canva', 'adobe']): return '🎨'
-    if any(x in n for x in ['netflix', 'hbo']): return '🎬'
+    if any(x in n for x in ['gpt', 'chatgpt', 'openai']): return '🤖'
+    if any(x in n for x in ['gemini', 'جيميناي', 'ai']): return '✨'
+    if any(x in n for x in ['canva', 'كانفا', 'adobe', 'ادوبي', 'xd', 'express']): return '🎨'
+    if any(x in n for x in ['capcut', 'كاب كات']): return '🎬'
+    if any(x in n for x in ['netflix', 'نتفلكس', 'hbo', 'peacock', 'paramount']): return '🍿'
+    if any(x in n for x in ['vpn', 'hma', 'express']): return '🔒'
+    if any(x in n for x in ['office', 'microsoft', 'مايكروسوفت', 'windows', 'ويندوز', 'pdf']): return '💻'
+    if any(x in n for x in ['grammarly', 'notion', 'leonardo', 'avira', 'grok']): return '⚡'
     return '🛒'
 
 def main_menu(user_id, lang='ar'):
@@ -281,7 +286,7 @@ def execute_admin_balance_remove(message, target_uid):
         db[target_uid]['balance'] = round(new_balance, 2)
         save_db(db)
         
-        bot.send_message(ADMIN_ID, f"🗑️ **تمت خصم/إزالة الرصيد بنجاح!**\nتم خصم `{amount} جنيه` وأصبح رصيد المستخدم الحالي: `{new_balance} جنيه`.", parse_mode="Markdown")
+        bot.send_message(ADMIN_ID, f"🗑️ **تم خصم/إزالة الرصيد بنجاح!**\nتم خصم `{amount} جنيه` وأصبح رصيد المستخدم الحالي: `{new_balance} جنيه`.", parse_mode="Markdown")
         try:
             bot.send_message(target_uid, f"⚠️ **تم خصم مبلغ من رصيدك بواسطة الإدارة!**\n💰 المبلغ المخصوم: **{amount} جنيه**\n📌 رصيدك الحالي: **{new_balance} جنيه**", parse_mode="Markdown")
         except: pass
@@ -357,7 +362,7 @@ def basic_buttons(message):
         bot.send_message(message.chat.id, "📦 No orders yet." if lang != 'ar' else "📦 لا توجد طلبات سابقة.")
 
 # ==========================================
-# 8. نظام الشحن التلقائي وقراءة إشعارات (فودافون/أورانج/انستا باي)
+# 8. نظام الشحن التلقائي وقراءة إشعارات المحافظ
 # ==========================================
 @bot.message_handler(func=lambda msg: is_btn(msg, 'add_balance'))
 def ask_amount(message):
@@ -429,7 +434,7 @@ def payment_webhook():
         if not message_text and request.data:
             message_text = request.data.decode('utf-8')
 
-        # 🔍 استخراج رقم الهاتف والمبلغ من نص الإشعار الوارد بغض النظر عن طريقة صياغته
+        # استخراج رقم الهاتف والمبلغ من نص الإشعار الوارد بغض النظر عن طريقة الصياغة أو السكريبت
         phone_match = re.search(r'(01[0125]\d{8})', message_text)
         amount_match = re.search(r'(\d+(?:\.\d+)?)\s*(جنيه|جـ|EGP|LE)?', message_text)
 
@@ -439,7 +444,6 @@ def payment_webhook():
 
             target_user_id = None
             for uid, info in active_pending_payments.items():
-                # التحقق من تطابق رقم الهاتف أو قيمة المبلغ المعلق
                 if info['amount'] == paid_amount or info.get('phone') == sender_phone:
                     target_user_id = info['user_id']
                     break
@@ -448,13 +452,13 @@ def payment_webhook():
                 update_balance(target_user_id, paid_amount)
                 lang = get_user(target_user_id)['lang']
                 
-                success_text = f"🎉 **تم قراءة إشعار التحويل بنجاح!**\n💰 تمت إضافة **{paid_amount} جنيه** إلى رصيدك فوراً."
+                success_text = f"🎉 **تم قراءة إشعار التحويل والتحقق منه بنجاح!**\n💰 تمت إضافة **{paid_amount} جنيه** إلى حسابك فوراً."
                 bot.send_message(target_user_id, success_text, parse_mode="Markdown")
                 
                 if sender_phone in active_pending_payments:
                     del active_pending_payments[sender_phone]
                     
-                return {"status": "success", "message": "Balance updated via notification script"}, 200
+                return {"status": "success", "message": "Balance updated automatically"}, 200
 
         return {"status": "ignored", "message": "No matching payment pattern found"}, 200
     except Exception as e:
@@ -499,7 +503,7 @@ def show_services(call):
         markup = InlineKeyboardMarkup(row_width=1)
         for s in services:
             if str(s.get('category', {}).get('id')) == str(cat_id):
-                markup.add(InlineKeyboardButton(f"🛒 {get_name(s, lang)}", callback_data=f"srv_{s.get('id')}"))
+                markup.add(InlineKeyboardButton(f"{get_icon(get_name(s, lang))} {get_name(s, lang)}", callback_data=f"srv_{s.get('id')}"))
         markup.add(InlineKeyboardButton(LANGS[lang]['back_btn'], callback_data="back_to_cats"))
         bot.edit_message_text(LANGS[lang]['available_serv'], call.message.chat.id, call.message.message_id, parse_mode="Markdown", reply_markup=markup)
     except: pass
@@ -577,7 +581,7 @@ def run_flask():
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 if __name__ == '__main__':
-    print("🚀 البوت يعمل الآن بكامل الميزات وبنظام قراءة سكريبت إشعارات المحافظ (فودافون/أورانج/انستا باي)...")
+    print("🚀 البوت يعمل الآن بكامل الميزات المحدثة وقراءة إشعارات المحافظ التلقائية...")
     flask_thread = threading.Thread(target=run_flask)
     flask_thread.daemon = True
     flask_thread.start()
