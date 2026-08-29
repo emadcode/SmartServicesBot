@@ -106,7 +106,6 @@ def translate_text(text, target_lang):
     except Exception: return text
 
 def ai_analyze_payment_receipt(message_text):
-    # الفحص الاحتياطي والسريع أولاً لضمان عدم حدوث Crash
     phone_match = re.search(r'(01[0125]\d{8})', message_text)
     amount_match = re.search(r'(\d+(?:\.\d+)?)\s*(جنيه|جـ|EGP|LE)?', message_text)
     
@@ -117,11 +116,7 @@ def ai_analyze_payment_receipt(message_text):
         return {"valid": extracted_amount > 0, "amount": extracted_amount, "phone": extracted_phone}
 
     try:
-        prompt = f"""
-        Analyze the following financial receipt/SMS notification text from Vodafone Cash, Orange Cash, or InstaPay.
-        Extract the transaction details and return strictly a JSON object with keys: "valid" (true/false), "amount" (float number), "phone" (string phone number if found).
-        Text to analyze: {message_text}
-        """
+        prompt = f"Analyze the following financial receipt/SMS notification text from Vodafone Cash, Orange Cash, or InstaPay. Extract the transaction details and return strictly a JSON object with keys: 'valid' (true/false), 'amount' (float number), 'phone' (string phone number if found). Text to analyze: {message_text}"
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
         headers = {'Content-Type': 'application/json'}
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
