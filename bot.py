@@ -89,7 +89,7 @@ def is_btn(msg, key):
     return any(msg.text == lang_dict.get(key) for lang_dict in LANGS.values())
 
 # ==========================================
-# 3. نظام الترجمة والذكاء الاصطناعي الآمن
+# 3. نظام الترجمة والذكاء الاصطناعي الآمن 100%
 # ==========================================
 translation_cache = {}
 
@@ -106,6 +106,7 @@ def translate_text(text, target_lang):
     except Exception: return text
 
 def ai_analyze_payment_receipt(message_text):
+    # الفحص السريع والأساسي أولاً (دائماً يعمل كبديل آمن)
     phone_match = re.search(r'(01[0125]\d{8})', message_text)
     amount_match = re.search(r'(\d+(?:\.\d+)?)\s*(جنيه|جـ|EGP|LE)?', message_text)
     
@@ -121,8 +122,8 @@ def ai_analyze_payment_receipt(message_text):
         headers = {'Content-Type': 'application/json'}
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
         
-        response = requests.post(url, headers=headers, json=payload, timeout=5)
-        result_json = response.json()
-        ai_reply = result_json['candidates'][0]['content']['parts'][0]['text']
-        
-        clean_json_str = re.sub(r'```json|
+        response = requests.post(url, headers=headers, json=payload, timeout=4)
+        if response.status_code == 200:
+            result_json = response.json()
+            ai_reply = result_json['candidates'][0]['content']['parts'][0]['text']
+            clean_json_str = re.sub(r'```json|
