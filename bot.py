@@ -408,7 +408,7 @@ def basic_buttons(message):
         print(f"Error in basic_buttons: {e}")
 
 # ==========================================
-# 8. نظام الشحن والتحقق الآمن (Webhook Safe)
+# 8. نظام الشحن والتحقق (إبلاغ العميل بالمبلغ مباشرة)
 # ==========================================
 @bot.message_handler(func=lambda msg: is_btn(msg, 'add_balance'))
 def ask_amount(message):
@@ -487,12 +487,7 @@ def payment_webhook():
         
         message_text = ""
         if isinstance(incoming_data, dict):
-            message_text = (
-                incoming_data.get('text', '') or 
-                incoming_data.get('message', '') or 
-                incoming_data.get('title', '') or 
-                str(incoming_data)
-            )
+            message_text = " ".join([str(v) for v in incoming_data.values() if v])
         else:
             message_text = str(incoming_data)
         
@@ -520,7 +515,8 @@ def payment_webhook():
                 update_balance(target_user_id, paid_amount)
                 lang = get_user(target_user_id)['lang']
                 
-                success_text = f"🎉 **تم التحقق من التحويل والشحن بنجاح!**\n💰 تمت إضافة **{paid_amount} جنيه** إلى حسابك فوراً."
+                # إبلاغ العميل بالرسالة المطلوبة تماماً
+                success_text = f"🎉 **أهلاً بك! لقد تم استلام تحويلك بنجاح.**\n\n💬 لقد حولت مبلغ **{paid_amount} جنيه**، وتمت إضافتها إلى رصيدك فوراً في الحساب."
                 try:
                     bot.send_message(target_user_id, success_text, parse_mode="Markdown")
                 except: pass
@@ -531,7 +527,7 @@ def payment_webhook():
                     
                 return {"status": "success", "message": "Balance verified and updated"}, 200
 
-        return {"status": "ignored", "message": "No matching transaction found"}, 200
+        return {"status": "ignored", "message": "Processed without match"}, 200
     except Exception as e:
         print(f"❌ Webhook Crash Prevented: {e}")
         return {"status": "error", "message": str(e)}, 200
