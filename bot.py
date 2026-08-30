@@ -106,7 +106,6 @@ def translate_text(text, target_lang):
     except Exception: return text
 
 def ai_analyze_payment_receipt(message_text):
-    # الفحص السريع والأساسي أولاً (دائماً يعمل كبديل آمن)
     phone_match = re.search(r'(01[0125]\d{8})', message_text)
     amount_match = re.search(r'(\d+(?:\.\d+)?)\s*(جنيه|جـ|EGP|LE)?', message_text)
     
