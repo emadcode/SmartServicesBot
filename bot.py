@@ -39,7 +39,7 @@ app = Flask(__name__)
 active_pending_payments = {}
 
 # ==========================================
-# 2. قاعدة البيانات الآمنة (حماية تامة للأرصدة)
+# 2. قاعدة البيانات الآمنة (حماية الأرصدة)
 # ==========================================
 DB_FILE = 'users_db.json'
 user_payment_data = {} 
@@ -76,7 +76,6 @@ def set_lang(user_id, lang):
         save_db(db)
 
 def update_balance(user_id, amount):
-    # دالة صارمة: لا تعدل الرصيد إلا بناءً على طلب شحن أو شراء مباشر
     db = load_db()
     uid_str = str(user_id)
     if uid_str in db:
@@ -90,7 +89,7 @@ def is_btn(msg, key):
     return any(msg.text == lang_dict.get(key) for lang_dict in LANGS.values())
 
 # ==========================================
-# 3. نظام الذكاء الاصطناعي للأيقونات وتحليل الدفع
+# 3. نظام الذكاء الاصطناعي للأيقونات وتحليل أي مبلغ
 # ==========================================
 translation_cache = {}
 icon_cache = {}
@@ -136,7 +135,7 @@ def ai_analyze_payment_receipt(message_text):
         return {"valid": extracted_amount > 0, "amount": extracted_amount, "phone": extracted_phone}
 
     try:
-        prompt = f"Analyze this SMS text. If it is a financial transfer, extract strictly a JSON object with keys: valid (true/false), amount (float number), phone (string phone number). Text: {message_text}"
+        prompt = f"Analyze this SMS text. If it is any financial transfer (even small amounts like 5 EGP), extract strictly a JSON object with keys: valid (true/false), amount (float number), phone (string phone number). Text: {message_text}"
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
         headers = {'Content-Type': 'application/json'}
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
@@ -170,11 +169,11 @@ LANGS = {
         'currency': "العملة 💱", 'referral': "الإحالات 🔒", 'add_balance': "إضافة رصيد 💳",
         'admin_panel_btn': "👑 لوحة التحكم",
         'choose_lang': "🌐 اختر لغتك:", 'lang_set': "✅ تم تغيير اللغة بنجاح!",
-        'ask_amount': "💵 **أدخل المبلغ المراد شحنه (بالجنيه المصري):**\n\n⚠️ الحد الأدنى: 10 جنيه\n⚠️ الحد الأقصى: 1000 جنيه\n\n(اكتب 'إلغاء' للتراجع)",
-        'invalid_amount': "⚠️ يرجى إدخال مبلغ صحيح بين 10 و 1000 جنيه.",
+        'ask_amount': "💵 **أدخل المبلغ المراد شحنه (بالجنيه المصري):**\n\n⚠️ الحد الأدنى: 5 جنيه\n⚠️ الحد الأقصى: 1000 جنيه\n\n(اكتب 'إلغاء' للتراجع)",
+        'invalid_amount': "⚠️ يرجى إدخال مبلغ صحيح بين 5 و 1000 جنيه.",
         'choose_payment': "💳 **اختر طريقة الدفع للمبلغ ({} جنيه):**",
         'ask_phone': "📱 **أرسل رقم هاتفك الذي ستُحول منه (مثلاً: 01012345678):**",
-        'waiting_auto_pay': "⏳ **جارٍ انتظار وتحليل إشعار التحويل...**\n\nقم بالتحويل الآن بقيمة `{2} جنيه` إلى رقم **{0}** التالي:\n`{1}`\n\n📱 **رقم هاتفك المسجل:** `{3}`\n\n⚡ **ملاحظة:** النظام يقرأ جميع الرسائل تلقائياً عبر الذكاء الاصطناعي وسيشحن رصيدك فور وصول التحويل.",
+        'waiting_auto_pay': "⏳ **جارٍ انتظار وتحليل إشعار التحويل...**\n\nقم بالتحويل الآن بقيمة `{2} جنيه` إلى رقم **{0}** التالي:\n`{1}`\n\n📱 **رقم هاتفك المسجل:** `{3}`\n\n⚡ **ملاحظة:** النظام يقرأ أي مبلغ تلقائياً (حتى لو كان 5 جنيه) وسيشحن رصيدك فور وصول التحويل.",
         'cancel': "إلغاء ❌", 'insufficient': "⚠️ رصيدك غير كافٍ!", 
         'buy_btn': "💳 شراء الآن", 'back_btn': "🔙 رجوع",
         'account_info': "👤 **معلومات حسابك:**\n\n🆔 رقم الحساب: `{}`\n💰 الرصيد الحالي: **{} جنيه مصري**",
@@ -309,7 +308,7 @@ def check_provider_wallet_call(message):
         bot.send_message(message.chat.id, f"خطأ: {e}")
 
 # ==========================================
-# 6. الأزرار العامة والشحن
+# 6. الأزرار العامة والشحن (قبول من 5 جنيه)
 # ==========================================
 @bot.message_handler(func=lambda msg: is_btn(msg, 'language'))
 def choose_language(message):
@@ -348,9 +347,9 @@ def ask_amount(message):
 def process_amount(message):
     try:
         amount_egp = float(message.text)
-        if not (10 <= amount_egp <= 1000): raise ValueError
+        if not (5 <= amount_egp <= 1000): raise ValueError  # تعديل الحد الأدنى ليصبح 5 جنيه
     except:
-        bot.send_message(message.chat.id, "⚠️ مبلغ غير صحيح.")
+        bot.send_message(message.chat.id, "⚠️ يرجى إدخال مبلغ صحيح بين 5 و 1000 جنيه.")
         return
     user_payment_data[message.chat.id] = {'amount': amount_egp}
     markup = InlineKeyboardMarkup(row_width=1).add(
@@ -383,13 +382,18 @@ def payment_webhook():
         incoming_data = request.json if request.is_json else (request.form if request.form else {})
         message_text = " ".join([str(v) for v in incoming_data.values() if v]) if isinstance(incoming_data, dict) else str(incoming_data)
         ai_result = ai_analyze_payment_receipt(message_text)
+        
         if ai_result.get('valid') == True:
             paid_amount = float(ai_result.get('amount', 0))
             sender_phone = str(ai_result.get('phone', ''))
+            
+            # البحث عن المعاملة المطابقة حتى للمبالغ الصغيرة (مثل 5 جنيه)
             target_user_id = next((info['user_id'] for uid, info in active_pending_payments.items() if abs(info['amount'] - paid_amount) < 1.0 or sender_phone in uid), None)
+            
             if target_user_id:
                 update_balance(target_user_id, paid_amount)
-                bot.send_message(target_user_id, f"🎉 تمت إضافة **{paid_amount} جنيه** لرصيدك بنجاح!", parse_mode="Markdown")
+                # إبلاغ العميل بالصيغة المطلوبة تماماً
+                bot.send_message(target_user_id, f"🎉 **لقد استلمنا مبلغ {paid_amount} جنيه، وتمت إضافتها إلى رصيدك فوراً!**", parse_mode="Markdown")
                 return {"status": "success"}, 200
         return {"status": "ignored"}, 200
     except Exception as e:
@@ -458,7 +462,7 @@ def show_details(call):
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
 # ==========================================
-# 8. الشراء الآلي الفوري (الخصم فقط عند الشراء)
+# 8. الشراء الآلي الفوري
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data.startswith('buy_'))
 def process_purchase(call):
@@ -467,7 +471,6 @@ def process_purchase(call):
         price_egp, user_id = float(price_str), call.message.chat.id
         user = get_user(user_id, call.from_user.username)
         
-        # التأكد بدقة من أن الرصيد يكفي قبل أي خصم
         if user['balance'] >= price_egp:
             bot.answer_callback_query(call.id, "⏳ جاري تنفيذ الطلب...")
             headers = {"Authorization": f"Bearer {PROVIDER_TOKEN}", "Content-Type": "application/json", "Idempotency-Key": str(uuid.uuid4())}
@@ -475,7 +478,6 @@ def process_purchase(call):
             response = requests.post(f"{BASE_URL}/orders", headers=headers, json=payload, timeout=20)
             
             if response.status_code in [200, 201] or response.json().get('status') in [True, 'success']:
-                # خصم الرصيد حصرياً عند نجاح عملية الشراء من السيرفر الخارجي
                 update_balance(user_id, -price_egp)
                 bot.send_message(user_id, f"🎉 **تم إتمام الشراء بنجاح!**\n💰 خصم: {int(price_egp)} جنيه", parse_mode="Markdown")
             else:
