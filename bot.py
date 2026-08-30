@@ -408,7 +408,7 @@ def basic_buttons(message):
         print(f"Error in basic_buttons: {e}")
 
 # ==========================================
-# 8. نظام الشحن والتحقق الآمن والذكي (Webhook)
+# 8. نظام الشحن والتحقق المتوافق مع NotifyHook JSON
 # ==========================================
 @bot.message_handler(func=lambda msg: is_btn(msg, 'add_balance'))
 def ask_amount(message):
@@ -484,10 +484,23 @@ def wait_for_auto_payment(message):
 def payment_webhook():
     try:
         incoming_data = request.json if request.is_json else request.form
-        message_text = incoming_data.get('message', '') or incoming_data.get('text', '') or str(incoming_data)
+        
+        # التقاط نص الإشعار بدقة من قالب JSON القادم من تطبيق NotifyHook (حقل text أو message أو title)
+        message_text = ""
+        if isinstance(incoming_data, dict):
+            message_text = (
+                incoming_data.get('text', '') or 
+                incoming_data.get('message', '') or 
+                incoming_data.get('title', '') or 
+                str(incoming_data)
+            )
+        else:
+            message_text = str(incoming_data)
         
         if not message_text and request.data:
             message_text = request.data.decode('utf-8')
+
+        print(f"📥 [Webhook Received]: {message_text}")
 
         ai_result = ai_analyze_payment_receipt(message_text)
 
@@ -505,7 +518,7 @@ def payment_webhook():
                 update_balance(target_user_id, paid_amount)
                 lang = get_user(target_user_id)['lang']
                 
-                success_text = f"🎉 **تم التحقق من التحويل بنجاح!**\n💰 تمت إضافة **{paid_amount} جنيه** إلى حسابك فوراً."
+                success_text = f"🎉 **تم التحقق من التحويل والشحن بنجاح!**\n💰 تمت إضافة **{paid_amount} جنيه** إلى حسابك فوراً."
                 try:
                     bot.send_message(target_user_id, success_text, parse_mode="Markdown")
                 except: pass
@@ -516,8 +529,9 @@ def payment_webhook():
                     
                 return {"status": "success", "message": "Balance verified and updated"}, 200
 
-        return {"status": "ignored", "message": "No matching transaction"}, 200
+        return {"status": "ignored", "message": "No matching transaction found"}, 200
     except Exception as e:
+        print(f"❌ Webhook Error: {e}")
         return {"status": "error", "message": str(e)}, 500
 
 # ==========================================
@@ -645,7 +659,7 @@ def run_flask():
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 if __name__ == '__main__':
-    print("🚀 البوت يعمل الآن بكفاءة وثبات تام...")
+    print("🚀 البوت يعمل الآن بكفاءة وثبات تام ومتوافق مع NotifyHook...")
     flask_thread = threading.Thread(target=run_flask)
     flask_thread.daemon = True
     flask_thread.start()
