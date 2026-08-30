@@ -8,6 +8,7 @@ import re
 import threading
 from flask import Flask, request
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from google import genai
 
 # ==========================================
 # 1. إعدادات البوت والبيانات الأساسية
@@ -35,6 +36,9 @@ CUSTOM_PRICES = {
 
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
+
+# تهيئة عميل جوجل جنها الإداري الحديث
+ai_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 active_pending_payments = {}
 
@@ -89,7 +93,7 @@ def is_btn(msg, key):
     return any(msg.text == lang_dict.get(key) for lang_dict in LANGS.values())
 
 # ==========================================
-# 3. نظام الترجمة والذكاء الاصطناعي الآمن 100%
+# 3. نظام الترجمة والذكاء الاصطناعي الحديث (Gemini SDK)
 # ==========================================
 translation_cache = {}
 
@@ -112,25 +116,25 @@ def ai_analyze_payment_receipt(message_text):
     extracted_amount = float(amount_match.group(1)) if amount_match else 0.0
     extracted_phone = phone_match.group(1) if phone_match else ""
 
-    if not GEMINI_API_KEY:
+    if not ai_client:
         return {"valid": extracted_amount > 0, "amount": extracted_amount, "phone": extracted_phone}
 
     try:
-        prompt = f"Analyze this receipt text and return a JSON with keys valid (true/false), amount (float), phone (string). Text: {message_text}"
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-        headers = {'Content-Type': 'application/json'}
-        payload = {"contents": [{"parts": [{"text": prompt}]}]}
+        prompt = f"Analyze this SMS text. If it is a financial transfer or receipt, extract strictly a JSON object with keys: valid (true/false), amount (float number), phone (string phone number). Text: {message_text}"
         
-        response = requests.post(url, headers=headers, json=payload, timeout=4)
-        if response.status_code == 200:
-            result_json = response.json()
-            ai_reply = result_json['candidates'][0]['content']['parts'][0]['text']
+        response = ai_client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+        )
+        
+        if response and response.text:
+            ai_reply = response.text
             clean_reply = ai_reply.replace("```json", "").replace("```", "").strip()
             data = json.loads(clean_reply)
             if data.get('amount', 0) > 0:
                 return data
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"⚠️ AI Analysis Error: {e}")
         
     return {"valid": extracted_amount > 0, "amount": extracted_amount, "phone": extracted_phone}
 
@@ -157,7 +161,7 @@ LANGS = {
         'invalid_amount': "⚠️ يرجى إدخال مبلغ صحيح بين 10 و 1000 جنيه.",
         'choose_payment': "💳 **اختر طريقة الدفع للمبلغ ({} جنيه):**",
         'ask_phone': "📱 **أرسل رقم هاتفك الذي ستُحول منه (مثلاً: 01012345678):**",
-        'waiting_auto_pay': "⏳ **جارٍ انتظار وتحليل إشعار التحويل...**\n\nقم بالتحويل الآن بقيمة `{2} جنيه` إلى رقم **{0}** التالي:\n`{1}`\n\n📱 **رقم هاتفك المسجل:** `{3}`\n\n⚡ **ملاحظة:** النظام يراجع الرسائل باستمرار وسيشحن رصيدك تلقائياً فور وصول التحويل.",
+        'waiting_auto_pay': "⏳ **جارٍ انتظار وتحليل إشعار التحويل...**\n\nقم بالتحويل الآن بقيمة `{2} جنيه` إلى رقم **{0}** التالي:\n`{1}`\n\n📱 **رقم هاتفك المسجل:** `{3}`\n\n⚡ **ملاحظة:** النظام يقرأ جميع الرسائل تلقائياً عبر الذكاء الاصطناعي وسيشحن رصيدك فور وصول التحويل.",
         'cancel': "إلغاء ❌", 'insufficient': "⚠️ رصيدك غير كافٍ!", 
         'buy_btn': "💳 شراء الآن", 'back_btn': "🔙 رجوع",
         'account_info': "👤 **معلومات حسابك:**\n\n🆔 رقم الحساب: `{}`\n💰 الرصيد الحالي: **{} جنيه مصري**",
@@ -408,7 +412,7 @@ def basic_buttons(message):
         print(f"Error in basic_buttons: {e}")
 
 # ==========================================
-# 8. نظام الشحن والتحقق (إبلاغ العميل بالمبلغ مباشرة)
+# 8. نظام الشحن والتحقق التلقائي
 # ==========================================
 @bot.message_handler(func=lambda msg: is_btn(msg, 'add_balance'))
 def ask_amount(message):
@@ -497,7 +501,7 @@ def payment_webhook():
             except:
                 message_text = ""
 
-        print(f"📥 [Webhook Received]: {message_text}")
+        print(f"📥 [GenAI Webhook Received]: {message_text}")
 
         ai_result = ai_analyze_payment_receipt(message_text)
 
@@ -515,8 +519,7 @@ def payment_webhook():
                 update_balance(target_user_id, paid_amount)
                 lang = get_user(target_user_id)['lang']
                 
-                # إبلاغ العميل بالرسالة المطلوبة تماماً
-                success_text = f"🎉 **أهلاً بك! لقد تم استلام تحويلك بنجاح.**\n\n💬 لقد حولت مبلغ **{paid_amount} جنيه**، وتمت إضافتها إلى رصيدك فوراً في الحساب."
+                success_text = f"🎉 **أهلاً بك! لقد تم استلام تحويلك بنجاح.**\n\n💬 لقد حولت مبلغ **{paid_amount} جنيه**، وتمت إضافتها إلى رصيدك فوراً."
                 try:
                     bot.send_message(target_user_id, success_text, parse_mode="Markdown")
                 except: pass
@@ -525,7 +528,7 @@ def payment_webhook():
                     if p_info['user_id'] == target_user_id:
                         del active_pending_payments[p_phone]
                     
-                return {"status": "success", "message": "Balance verified and updated"}, 200
+                return {"status": "success", "message": "Balance verified and updated via GenAI"}, 200
 
         return {"status": "ignored", "message": "Processed without match"}, 200
     except Exception as e:
@@ -657,7 +660,7 @@ def run_flask():
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 if __name__ == '__main__':
-    print("🚀 البوت والسيرفر يعملان الآن بثبات كامل ومحصنان ضد الأخطاء...")
+    print("🚀 البوت والسيرفر يعملان الآن مع مكتبة Google GenAI الرسمية...")
     flask_thread = threading.Thread(target=run_flask)
     flask_thread.daemon = True
     flask_thread.start()
