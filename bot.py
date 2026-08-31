@@ -26,11 +26,8 @@ PAYMENT_NUMBER = "01028835231"        # رقم المحفظة / إنستا با�
 DOLLAR_PRICE_EGP = 50  
 FIXED_PROFIT_EGP = 100 
 
-CUSTOM_PRICES = {
-    "13": 150,   
-    "129": 200,  
-    "130": 350
-}
+CUSTOM_PRICES = {}
+active_offers = {}  # لتخزين العروض المؤقتة وأسعارها وتوقيتها
 
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
@@ -63,7 +60,6 @@ def get_user(user_id, username=None, ref_username=None):
     if uid_str not in db: 
         db[uid_str] = {'balance': 0.0, 'lang': 'ar', 'currency': 'EGP', 'username': clean_username, 'referred_by': None}
         
-        # نظام الإحالات باليوزر
         if ref_username and ref_username.lower() != clean_username:
             ref_uid = next((u for u, info in db.items() if info.get('username', '').lower() == ref_username.lower()), None)
             if ref_uid:
@@ -109,7 +105,7 @@ def is_btn(msg, key):
     return any(msg.text == lang_dict.get(key) for lang_dict in LANGS.values())
 
 # ==========================================
-# 3. نظام الأيقونات الاحترافية (نتفلكس، شاهد، إلخ)
+# 3. نظام الذكاء الاصطناعي وتوليد واجهات العروض
 # ==========================================
 icon_cache = {}
 
@@ -139,6 +135,21 @@ def translate_text(text, target_lang):
         translation_cache[cache_key] = translated
         return translated
     except Exception: return text
+
+def ai_generate_offer_banner(service_name, old_price, new_price):
+    if not GEMINI_API_KEY:
+        return f"🔥 **عرض لفترة محدودة!**\n\nخدمة: {service_name}\nالسعر السابق: {old_price} جنيه\nالسعر الحالي: **{new_price} جنيه**"
+    try:
+        prompt = f"Design an attractive, professional promotional banner and description in Arabic for a special limited-time offer on the service '{service_name}'. Old price: {old_price} EGP, New promo price: {new_price} EGP. Use emojis and exciting formatting."
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+        headers = {'Content-Type': 'application/json'}
+        payload = {"contents": [{"parts": [{"text": prompt}]}]}
+        response = requests.post(url, headers=headers, json=payload, timeout=10)
+        if response.status_code == 200:
+            return response.json()['candidates'][0]['content']['parts'][0]['text']
+    except:
+        pass
+    return f"🔥 **عرض خاص حصري!**\n\nخدمة: {service_name}\nالسعر الجديد: **{new_price} جنيه**"
 
 def ai_analyze_payment_receipt(message_text):
     phone_match = re.search(r'(01[0125]\d{8})', message_text)
@@ -179,8 +190,8 @@ def get_desc(item, lang):
 # ==========================================
 LANGS = {
     'ar': {
-        'welcome': "🌟 **مرحباً بك في متجرنا الرقمي الذكي!**\n\n🤖 استمتع بخدماتنا السريعة والآمنة 100%.\n\n👇 استخدم القائمة أدناه للتنقل:",
-        'keys': "مفاتيح API 🔑", 'orders': "طلباتي 📦", 'services': "الخدمات الرقمية 🛍️",
+        'welcome': "🌟 **مرحباً بك في متجرنا الرقمي الذكي المرتبط بـ API الأساسي!**\n\n🤖 استمتع بخدماتنا السريعة والآمنة 100%.\n\n👇 استخدم القائمة أدناه للتنقل:",
+        'keys': "مفاتيح API 🔑", 'orders': "طلباتي 📦", 'services': "الخدمات والعروض الفورية 🛍️",
         'support': "الدعم الفني 💬", 'account': "حسابي 👤", 'language': "اللغة 🌐",
         'currency': "العملة 💱", 'referral': "الإحالات والأرباح 🎁", 'add_balance': "شحن الرصيد 💳",
         'admin_panel_btn': "👑 لوحة التحكم",
@@ -190,11 +201,11 @@ LANGS = {
         'choose_payment': "💳 **اختر وسيلة الدفع للمبلغ ({0} جنيه):**",
         'ask_phone': "📱 **أرسل رقم هاتفك الذي قمت بالتحويل منه (مثلاً: 01012345678):**",
         'waiting_auto_pay': "⏳ **جاري انتظار وتأكيد التحويل...**\n\nقم بالتحويل الآن بقيمة `{2} جنيه` إلى الرقم الأزرق التالي:\n👉 **[01028835231](tel:01028835231)**\n\n📱 *رقم هاتفك المسجل:* `{3}`\n⏱️ *ملاحظة:* العملية صالحة لمدة **5 دقائق فقط** وسيتم شحن رصيدك تلقائياً.",
-        'cancel': "❌ تم الإلغاء.", 'insufficient': "⚠️ **رصيدك الحالي غير كافٍ لإتمام عملية الشراء!**\n\n💰 السعر المطلوب: `{0} جنيه`\n💳 رصيدك الحالي: `{1} جنيه`\n\nيرجى شحن رصيدك بقيمة العرض أو الفرق لإتمام الطلب.", 
-        'buy_btn': "💳 شراء الآن", 'back_btn': "🔙 رجوع",
+        'cancel': "❌ تم الإلغاء.", 'insufficient': "⚠️ **رصيدك الحالي غير كافٍ لإتمام عملية الشراء!**\n\n💰 السعر المطلوبة: `{0} جنيه`\n💳 رصيدك الحالي: `{1} جنيه`\n\nيرجى شحن رصيدك لإتمام الطلب.", 
+        'buy_btn': "💳 شراء الآن عبر API", 'back_btn': "🔙 رجوع",
         'account_info': "👤 **معلومات حسابك:**\n\n🆔 رقم الحساب: `{}`\n💰 الرصيد المتاح: **{} {}**",
         'support_info': "💬 **للتواصل مع الدعم الفني:**\n\nالمسؤول: {}",
-        'choose_cat': "🌟 **اختر القسم المطلوب:**", 'available_serv': "📌 **الخدمات المتاحة:**",
+        'choose_cat': "🌟 **اختر القسم المطلوب من API:**", 'available_serv': "📌 **الخدمات المتاحة:**",
         'details': "📌 **الخدمة:** {}\n\n📝 **التفاصيل:**\n{}\n\n💰 **السعر:** {} {}\n🆔 **الكود:** {}"
     }
 }
@@ -214,7 +225,7 @@ def main_menu(user_id, lang='ar'):
     return markup
 
 # ==========================================
-# 5. لوحة تحكم الأدمن (صنع العروض والإشعارات)
+# 5. لوحة تحكم الأدمن (العروض، التوقيت، تعديل الأسعار عبر API)
 # ==========================================
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -234,23 +245,32 @@ def handle_admin_button(message):
 
 def open_admin_panel(chat_id):
     markup = InlineKeyboardMarkup(row_width=1).add(
-        InlineKeyboardButton("📢 إنشاء وعمل عرض جديد (إرسال للجميع)", callback_data="adm_broadcast_offer"),
+        InlineKeyboardButton("🏷️ إنشاء وعرض خصم لخدمة (عبر API)", callback_data="adm_create_offer"),
         InlineKeyboardButton("👥 المستخدمين والأرصدة الحالية", callback_data="adm_users_list"),
-        InlineKeyboardButton("📋 قائمة الخدمات (/prices)", callback_data="adm_prices"),
-        InlineKeyboardButton("💼 فحص محفظة المتجر (/wallet)", callback_data="adm_wallet"),
+        InlineKeyboardButton("📋 قائمة الخدمات وتعديل أسعارها", callback_data="adm_prices"),
+        InlineKeyboardButton("💼 فحص محفظة المتجر الأساسية (/wallet)", callback_data="adm_wallet"),
         InlineKeyboardButton("💰 شحن رصيد لمستخدم", callback_data="adm_add_balance"),
         InlineKeyboardButton("💸 إزالة رصيد من مستخدم", callback_data="adm_remove_balance")
     )
-    bot.send_message(chat_id, "👑 **لوحة تحكم الأدمن:**", reply_markup=markup, parse_mode="Markdown")
+    bot.send_message(chat_id, "👑 **لوحة تحكم الأدمن (مرتبطة بـ API الأساسي):**", reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('adm_'))
 def admin_callbacks(call):
     if str(call.message.chat.id) != str(ADMIN_ID): return
     action = call.data
-    if action == 'adm_broadcast_offer':
+    if action == 'adm_create_offer':
         bot.answer_callback_query(call.id)
-        msg = bot.send_message(call.message.chat.id, "📢 **أرسل الآن نص العرض أو الإعلان الذي تريد إرساله لكافة مستخدمي البوت:**", parse_mode="Markdown")
-        bot.register_next_step_handler(msg, execute_broadcast_offer)
+        # جلب الخدمات لتخويل الأدمن اختيار خدمة لعمل عرض لها
+        try:
+            services = requests.get(f"{BASE_URL}/services", headers={"Authorization": f"Bearer {PROVIDER_TOKEN}"}, timeout=10).json().get('data', [])
+            markup = InlineKeyboardMarkup(row_width=1)
+            for s in services[:15]: # عرض اول 15 خدمة للتسهيل
+                s_id = s.get('id')
+                s_name = s.get('name_ar', s.get('name', 'خدمة'))
+                markup.add(InlineKeyboardButton(f"🏷️ {s_name}", callback_data=f"offer_srv_{s_id}"))
+            bot.send_message(call.message.chat.id, "📌 **اختر الخدمة التي تريد عمل عرض وتوقيت خاص لها:**", reply_markup=markup, parse_mode="Markdown")
+        except:
+            bot.send_message(call.message.chat.id, "⚠️ تعذر جلب الخدمات من API الأساسي.")
     elif action == 'adm_users_list':
         bot.answer_callback_query(call.id)
         db = load_db()
@@ -276,17 +296,50 @@ def admin_callbacks(call):
         msg = bot.send_message(call.message.chat.id, "👤 **أدخل يوزر المستخدم لإزالة الرصيد:**", parse_mode="Markdown")
         bot.register_next_step_handler(msg, ask_username_for_removal)
 
-def execute_broadcast_offer(message):
-    if str(message.chat.id) != str(ADMIN_ID): return
-    offer_text = f"🔥 **عرض حصري جديد!** 🔥\n\n{message.text}"
-    db = load_db()
-    success_count = 0
-    for uid in db.keys():
-        try:
-            bot.send_message(int(uid), offer_text, parse_mode="Markdown")
-            success_count += 1
-        except: pass
-    bot.send_message(ADMIN_ID, f"✅ **تم إرسال العرض بنجاح إلى ({success_count}) مستخدم.**", parse_mode="Markdown")
+@bot.callback_query_handler(func=lambda call: call.data.startswith('offer_srv_'))
+def offer_service_selected(call):
+    service_id = call.data.split('_')[2]
+    msg = bot.send_message(call.message.chat.id, "💵 **أدخل السعر الجديد للعرض (بالجنيه):**", parse_mode="Markdown")
+    bot.register_next_step_handler(msg, lambda m: get_offer_price_step(m, service_id))
+
+def get_offer_price_step(message, service_id):
+    try:
+        new_price = float(message.text.strip())
+        msg = bot.send_message(message.chat.id, "⏱️ **أدخل مدة العرض بالساعات (مثلاً: اكتب 2 يعني ساعتين):**", parse_mode="Markdown")
+        bot.register_next_step_handler(msg, lambda m: finalize_offer_creation(m, service_id, new_price))
+    except:
+        bot.send_message(message.chat.id, "⚠️ قيمة غير صالحة.")
+
+def finalize_offer_creation(message, service_id, new_price):
+    try:
+        hours = float(message.text.strip())
+        expiry_timestamp = time.time() + (hours * 3600)
+        
+        # حفظ العرض
+        active_offers[str(service_id)] = {
+            "price": new_price,
+            "expiry": expiry_timestamp
+        }
+        
+        # جلب بيانات الخدمة لتوليد واجهة بالذكاء الاصطناعي وإرسالها للإدارة والعملاء
+        services = requests.get(f"{BASE_URL}/services", headers={"Authorization": f"Bearer {PROVIDER_TOKEN}"}, timeout=10).json().get('data', [])
+        selected = next((s for s in services if str(s.get('id')) == str(service_id)), None)
+        s_name = selected.get('name_ar', selected.get('name', 'خدمة')) if selected else "خدمة رقمية"
+        old_price = CUSTOM_PRICES.get(str(service_id), 150)
+        
+        banner = ai_generate_offer_banner(s_name, old_price, new_price)
+        final_announcement = f"{banner}\n\n⏳ **ينتهي العرض خلال:** {hours} ساعات!\n🛒 متوفر الآن في قسم الخدمات."
+        
+        # إرسال إشعار العرض لكافة المستخدمين تلقائياً
+        db = load_db()
+        for uid in db.keys():
+            try:
+                bot.send_message(int(uid), final_announcement, parse_mode="Markdown")
+            except: pass
+            
+        bot.send_message(ADMIN_ID, "✅ **تم تفعيل العرض وتوليد واجهته وإرساله لكافة المستخدمين بنجاح!**", parse_mode="Markdown")
+    except:
+        bot.send_message(message.chat.id, "⚠️ خطأ في تحديد المدة الزمنية.")
 
 def ask_username_for_balance(message):
     if str(message.chat.id) != str(ADMIN_ID): return
@@ -336,9 +389,9 @@ def execute_admin_balance_remove(message, target_uid):
 def get_all_services_for_admin_call(message):
     try:
         services = requests.get(f"{BASE_URL}/services", headers={"Authorization": f"Bearer {PROVIDER_TOKEN}"}, timeout=10).json().get('data', [])
-        text = "📋 **قائمة الخدمات الأساسية:**\n\n"
-        for s in services:
-            text += f"▪️ {s.get('name')} | الكود: `{s.get('id')}`\n"
+        text = "📋 **قائمة الخدمات عبر API الأساسي:**\n\n"
+        for s in services[:30]:
+            text += f"▪️ {s.get('name')} | الكود: `{s.get('id')}` | السعر: {s.get('rate')}$\n"
         bot.send_message(message.chat.id, text, parse_mode="Markdown")
     except Exception as e:
         bot.send_message(message.chat.id, f"خطأ: {e}")
@@ -352,7 +405,7 @@ def check_provider_wallet_call(message):
         bot.send_message(message.chat.id, f"خطأ: {e}")
 
 # ==========================================
-# 6. إدارة العملة والإحالات باليوزر والشحن
+# 6. العملة والإحالات والشحن
 # ==========================================
 @bot.message_handler(func=lambda msg: is_btn(msg, 'currency'))
 def choose_currency_menu(message):
@@ -360,7 +413,7 @@ def choose_currency_menu(message):
         InlineKeyboardButton("🇪🇬 جنيه مصري (EGP)", callback_data="curr_EGP"),
         InlineKeyboardButton("🇺🇸 دولار أمريكي (USD)", callback_data="curr_USD")
     )
-    bot.send_message(message.chat.id, "💱 **اختر العملة المفضلة لعرض الأسعار:**", reply_markup=markup, parse_mode="Markdown")
+    bot.send_message(message.chat.id, "💱 **اختر العملة المفضلة:**", reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('curr_'))
 def set_currency_callback(call):
@@ -381,7 +434,7 @@ def choose_language(message):
 @bot.callback_query_handler(func=lambda call: call.data.startswith('lang_'))
 def set_language(call):
     new_lang = call.data.split('_')[1]
-    set_language_db = set_lang(call.message.chat.id, new_lang)
+    set_lang(call.message.chat.id, new_lang)
     bot.answer_callback_query(call.id, "✅")
     bot.delete_message(call.message.chat.id, call.message.message_id)
     lang = get_user(call.message.chat.id)['lang']
@@ -401,15 +454,15 @@ def basic_buttons(message):
     elif is_btn(message, 'support'):
         bot.send_message(message.chat.id, LANGS[lang]['support_info'].format(ADMIN_USERNAME), parse_mode="Markdown")
     elif is_btn(message, 'orders'):
-        bot.send_message(message.chat.id, "📦 لا توجد طلبات سابقة مسجلة في حسابك.")
+        bot.send_message(message.chat.id, "📦 لا توجد طلبات سابقة مسجلة في حسابك عبر API.")
     elif is_btn(message, 'referral'):
         bot_info = bot.get_me()
         username = user.get('username')
         if not username:
-            bot.send_message(message.chat.id, "⚠️ يرجى ضبط يوزر (Username) لحسابك على تيليجرام أولاً لكي تتمكن من استخدام نظام الإحالات.")
+            bot.send_message(message.chat.id, "⚠️ يرجى ضبط يوزر (Username) لحسابك على تيليجرام أولاً.")
             return
         ref_link = f"https://t.me/{bot_info.username}?start={username}"
-        ref_text = f"🎁 **نظام الإحالات والأرباح الفورية:**\n\nشارك رابط الإحالة الخاص بك واحصل على **5 جنيه** هدية فورية عن كل شخص يسجل من خلالك!\n\n📌 **رابط الإحالة الخاص بك:**\n`{ref_link}`"
+        ref_text = f"🎁 **نظام الإحالات والأرباح الفورية:**\n\nشارك رابط الإحالة واحصل على **5 جنيه** هدية فورية عن كل شخص يسجل!\n\n📌 **رابط الإحالة الخاص بك:**\n`{ref_link}`"
         bot.send_message(message.chat.id, ref_text, parse_mode="Markdown")
 
 @bot.message_handler(func=lambda msg: is_btn(msg, 'add_balance'))
@@ -503,7 +556,7 @@ def payment_webhook():
             
             if target_user_id:
                 update_balance(target_user_id, paid_amount)
-                bot.send_message(target_user_id, f"🎉 **لقد استلمنا مبلغ {paid_amount} جنيه، وتمت إضافتها إلى رصيدك فوراً!**", parse_mode="Markdown")
+                bot.send_message(target_user_id, f"🎉 **لقد استلمنا مبلغ {paid_amount} جنيه، وتمت إضافتها إلى رصيدك فوراً عبر API!**", parse_mode="Markdown")
                 return {"status": "success"}, 200
                 
         return {"status": "received_and_logged"}, 200
@@ -511,7 +564,7 @@ def payment_webhook():
         return {"status": "error"}, 200
 
 # ==========================================
-# 7. الأقسام والخدمات الرقمية باللوجو الجديد
+# 7. الأقسام والخدمات والعروض من API
 # ==========================================
 @bot.message_handler(func=lambda msg: is_btn(msg, 'services'))
 def list_categories(message):
@@ -527,9 +580,9 @@ def list_categories(message):
                 categories[cid] = (c_name, get_service_icon(c_name))
         markup = InlineKeyboardMarkup(row_width=2)
         markup.add(*[InlineKeyboardButton(f"{icon} {name}", callback_data=f"cat_{cid}") for cid, (name, icon) in categories.items()])
-        bot.send_message(message.chat.id, "🌟 **اختر القسم المناسب:**", reply_markup=markup, parse_mode="Markdown")
+        bot.send_message(message.chat.id, "🌟 **اختر القسم المناسب من المتجر الأساسي:**", reply_markup=markup, parse_mode="Markdown")
     except:
-        bot.send_message(message.chat.id, "⚠️ تعذر جلب الخدمات حالياً.")
+        bot.send_message(message.chat.id, "⚠️ تعذر جلب الخدمات من API الأساسي حالياً.")
 
 @bot.callback_query_handler(func=lambda call: call.data == 'back_to_cats')
 def back_to_categories(call):
@@ -544,7 +597,7 @@ def back_to_categories(call):
             categories[cid] = (c_name, get_service_icon(c_name))
     markup = InlineKeyboardMarkup(row_width=2)
     markup.add(*[InlineKeyboardButton(f"{icon} {name}", callback_data=f"cat_{cid}") for cid, (name, icon) in categories.items()])
-    bot.edit_message_text("🌟 **اختر القسم المناسب:**", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+    bot.edit_message_text("🌟 **اختر القسم المناسب من المتجر الأساسي:**", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('cat_'))
 def show_services(call):
@@ -554,9 +607,19 @@ def show_services(call):
     for s in services:
         if str(s.get('category', {}).get('id')) == str(cat_id):
             s_name = get_name(s, lang)
-            markup.add(InlineKeyboardButton(f"{get_service_icon(s_name)} {s_name}", callback_data=f"srv_{s.get('id')}"))
+            s_id = str(s.get('id'))
+            
+            # التحقق إذا كانت الخدمة عليها عرض نشط غير منتهي
+            icon = get_service_icon(s_name)
+            if s_id in active_offers:
+                if time.time() < active_offers[s_id]['expiry']:
+                    icon = "🔥 " + icon
+                else:
+                    del active_offers[s_id]
+                    
+            markup.add(InlineKeyboardButton(f"{icon} {s_name}", callback_data=f"srv_{s_id}"))
     markup.add(InlineKeyboardButton("🔙 رجوع", callback_data="back_to_cats"))
-    bot.edit_message_text("📌 **الخدمات المتاحة:**", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+    bot.edit_message_text("📌 **الخدمات المتاحة عبر API:**", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('srv_'))
 def show_details(call):
@@ -565,7 +628,15 @@ def show_details(call):
     services = requests.get(f"{BASE_URL}/services", headers={"Authorization": f"Bearer {PROVIDER_TOKEN}"}, timeout=10).json().get('data', [])
     selected = next((s for s in services if str(s.get('id')) == str(service_id)), None)
     if selected:
+        # فحص السعر العادي أو سعر العرض النشط
         price_egp = CUSTOM_PRICES.get(str(service_id), int(float(selected.get('rate', selected.get('price', 0))) * DOLLAR_PRICE_EGP) + FIXED_PROFIT_EGP)
+        
+        if str(service_id) in active_offers:
+            if time.time() < active_offers[str(service_id)]['expiry']:
+                price_egp = active_offers[str(service_id)]['price']
+            else:
+                del active_offers[str(service_id)]
+
         display_price = price_egp
         display_curr = "جنيه"
         if curr == 'USD':
@@ -580,7 +651,7 @@ def show_details(call):
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
 # ==========================================
-# 8. الشراء الفعلي وفحص رصيد العميل غير الكافي
+# 8. الشراء الفعلي التلقائي عبر API الأساسي
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data.startswith('buy_'))
 def process_purchase(call):
@@ -590,7 +661,7 @@ def process_purchase(call):
         user = get_user(user_id, call.from_user.username)
         
         if user['balance'] >= price_egp:
-            bot.answer_callback_query(call.id, "⏳ جاري إرسال الطلب للمزود...")
+            bot.answer_callback_query(call.id, "⏳ جاري تنفيذ الطلب عبر API المزود...")
             
             headers = {
                 "Authorization": f"Bearer {PROVIDER_TOKEN}", 
@@ -610,11 +681,10 @@ def process_purchase(call):
                 order_details = api_data.get('data', api_data)
                 formatted_result = json.dumps(order_details, ensure_ascii=False, indent=2).replace('{', '').replace('}', '').replace('"', '')
                 
-                bot.send_message(user_id, f"🎉 **تم تنفيذ الطلب بنجاح!**\n💰 خصم: {int(price_egp)} جنيه من رصيدك.\n\n📦 **تفاصيل التنفيذ:**\n`{formatted_result}`", parse_mode="Markdown")
+                bot.send_message(user_id, f"🎉 **تم إتمام الطلب بنجاح عبر API الأساسي!**\n💰 خصم: {int(price_egp)} جنيه من رصيدك.\n\n📦 **تفاصيل التنفيذ:**\n`{formatted_result}`", parse_mode="Markdown")
             else:
-                bot.send_message(user_id, "⚠️ عذراً، الخدمة غير متاحة حالياً، ولم يتم خصم أي مبلغ.")
+                bot.send_message(user_id, "⚠️ عذراً، الخدمة غير متاحة حالياً من المزود، ولم يتم خصم أي مبلغ.")
         else:
-            # رسالة نقص الرصيد مع زر الشحن المباشر
             lang = user['lang']
             insufficient_msg = LANGS[lang]['insufficient'].format(int(price_egp), user['balance'])
             markup = InlineKeyboardMarkup().add(
