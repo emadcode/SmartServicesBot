@@ -9,14 +9,13 @@ import threading
 import time
 from flask import Flask, request
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
-from google import genai
 
 # ==========================================
-# 1. إعدادات البوت والبيانات الأساسية (بشكل آمن)
+# 1. إعدادات البوت والبيانات الأساسية
 # ==========================================
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8987750439:AAGqJCL6nrqaxXLlo8a9MEnuQM-WqpcRtbU")
 PROVIDER_TOKEN = os.environ.get("PROVIDER_TOKEN", "bk_01M1709WVE7KVBQ1YY9BVM4KNN") 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "") # قراءة المفتاح حصرياً من متغيرات البيئة بأمان
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "") 
 BASE_URL = "https://xprostore.store/api/v1"
 
 ADMIN_ID = "1941469722"  # 👑 الـ ID الخاص بك
@@ -45,9 +44,6 @@ active_offers = {}
 
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
-
-# تهيئة عميل جوجل جنها الإداري الحديث بأمان
-ai_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 active_pending_payments = {}
 recent_incoming_receipts = []
@@ -120,7 +116,7 @@ def is_btn(msg, key):
     return any(msg.text == lang_dict.get(key) for lang_dict in LANGS.values())
 
 # ==========================================
-# 3. مساعدات الذكاء الاصطناعي وتوليد صور الخدمات عبر Gemini SDK
+# 3. مساعدات الذكاء الاصطناعي عبر Requests مباشرة
 # ==========================================
 def get_service_icon(name):
     n = name.lower()
@@ -166,18 +162,18 @@ def translate_text(text, target_lang):
     except Exception: return text
 
 def ai_generate_offer_banner(service_name, old_price, new_price):
-    if not ai_client:
+    if not GEMINI_API_KEY:
         return f"🔥 **عرض خاص لفترة محدودة!**\n\n🎯 الخدمة: {service_name}\n❌ السعر القديم: {old_price} جنيه\n💎 السعر الحالي: **{new_price} جنيه**"
     try:
         prompt = f"Design an attractive, professional promotional banner and description in Arabic with rich emojis for a special limited-time offer on '{service_name}'. Old price: {old_price} EGP, New promo price: {new_price} EGP."
-        response = ai_client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-        )
-        if response and response.text:
-            return response.text
-    except Exception as e:
-        print(f"⚠️ AI Offer Banner Error: {e}")
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+        headers = {'Content-Type': 'application/json'}
+        payload = {"contents": [{"parts": [{"text": prompt}]}]}
+        response = requests.post(url, headers=headers, json=payload, timeout=10)
+        if response.status_code == 200:
+            return response.json()['candidates'][0]['content']['parts'][0]['text']
+    except:
+        pass
     return f"🔥 **عرض خاص حصري!**\n\n🎯 الخدمة: {service_name}\n💎 السعر الجديد: **{new_price} جنيه**"
 
 def ai_analyze_payment_receipt(message_text):
@@ -187,24 +183,23 @@ def ai_analyze_payment_receipt(message_text):
     extracted_amount = float(amount_match.group(1)) if amount_match else 0.0
     extracted_phone = phone_match.group(1) if phone_match else ""
 
-    if not ai_client:
+    if not GEMINI_API_KEY:
         return {"valid": extracted_amount > 0, "amount": extracted_amount, "phone": extracted_phone}
 
     try:
         prompt = f"Analyze this incoming message text thoroughly. Extract strictly a JSON object with keys: valid (true/false if financial transfer), amount (float number), phone (string phone number). Text: {message_text}"
-        response = ai_client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-        )
-        if response and response.text:
-            ai_reply = response.text
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+        headers = {'Content-Type': 'application/json'}
+        payload = {"contents": [{"parts": [{"text": prompt}]}]}
+        response = requests.post(url, headers=headers, json=payload, timeout=5)
+        if response.status_code == 200:
+            ai_reply = response.json()['candidates'][0]['content']['parts'][0]['text']
             clean_reply = ai_reply.replace("```json", "").replace("```", "").strip()
             data = json.loads(clean_reply)
             if data.get('amount', 0) > 0:
                 return data
-    except Exception as e:
-        print(f"⚠️ AI Analysis Error: {e}")
-        
+    except:
+        pass
     return {"valid": extracted_amount > 0, "amount": extracted_amount, "phone": extracted_phone}
 
 def get_name(item, lang):
