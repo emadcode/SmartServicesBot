@@ -36,7 +36,9 @@ CUSTOM_PRICES = {
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
+# سجلات مؤقتة للعمليات المعلقة وأرشيف آخر الاستلامات للمقارنة الذكية
 active_pending_payments = {}
+recent_incoming_receipts = []
 
 # ==========================================
 # 2. قاعدة البيانات الآمنة (حماية الأرصدة)
@@ -89,7 +91,7 @@ def is_btn(msg, key):
     return any(msg.text == lang_dict.get(key) for lang_dict in LANGS.values())
 
 # ==========================================
-# 3. نظام الذكاء الاصطناعي للأيقونات وتحليل أي مبلغ
+# 3. نظام الذكاء الاصطناعي لفحص جميع الرسائل ومقارنة الأرقام
 # ==========================================
 translation_cache = {}
 icon_cache = {}
@@ -135,7 +137,7 @@ def ai_analyze_payment_receipt(message_text):
         return {"valid": extracted_amount > 0, "amount": extracted_amount, "phone": extracted_phone}
 
     try:
-        prompt = f"Analyze this SMS text. If it is any financial transfer (even small amounts like 5 EGP), extract strictly a JSON object with keys: valid (true/false), amount (float number), phone (string phone number). Text: {message_text}"
+        prompt = f"Analyze this incoming message text thoroughly. Extract strictly a JSON object with keys: valid (true/false if it contains a financial transfer/deposit), amount (float number), phone (string phone number found in text). Text: {message_text}"
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
         headers = {'Content-Type': 'application/json'}
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
@@ -173,7 +175,7 @@ LANGS = {
         'invalid_amount': "⚠️ يرجى إدخال مبلغ صحيح بين 5 و 1000 جنيه.",
         'choose_payment': "💳 **اختر طريقة الدفع للمبلغ ({} جنيه):**",
         'ask_phone': "📱 **أرسل رقم هاتفك الذي ستُحول منه (مثلاً: 01012345678):**",
-        'waiting_auto_pay': "⏳ **جارٍ انتظار وتحليل إشعار التحويل...**\n\nقم بالتحويل الآن بقيمة `{2} جنيه` إلى رقم **{0}** التالي:\n`{1}`\n\n📱 **رقم هاتفك المسجل:** `{3}`\n\n⚡ **ملاحظة:** النظام يقرأ أي مبلغ تلقائياً (حتى لو كان 5 جنيه) وسيشحن رصيدك فور وصول التحويل.",
+        'waiting_auto_pay': "⏳ **جارٍ انتظار وتحليل إشعار التحويل...**\n\nقم بالتحويل الآن بقيمة `{2} جنيه` إلى رقم **{0}** التالي:\n`{1}`\n\n📱 **رقم هاتفك المسجل:** `{3}`\n\n⚡ **ملاحظة:** الذكاء الاصطناعي يراجع جميع الرسائل واستلامات المحفظة أولاً بأول للمطابقة الفورية.",
         'cancel': "إلغاء ❌", 'insufficient': "⚠️ رصيدك غير كافٍ!", 
         'buy_btn': "💳 شراء الآن", 'back_btn': "🔙 رجوع",
         'account_info': "👤 **معلومات حسابك:**\n\n🆔 رقم الحساب: `{}`\n💰 الرصيد الحالي: **{} جنيه مصري**",
@@ -221,7 +223,8 @@ def open_admin_panel(chat_id):
         InlineKeyboardButton("📋 جلب قائمة الخدمات (/prices)", callback_data="adm_prices"),
         InlineKeyboardButton("💼 فحص محفظة المتجر (/wallet)", callback_data="adm_wallet"),
         InlineKeyboardButton("💰 شحن رصيد لمستخدم", callback_data="adm_add_balance"),
-        InlineKeyboardButton("💸 إزالة رصيد من مستخدم", callback_data="adm_remove_balance")
+        InlineKeyboardButton("💸 إزالة رصيد من مستخدم", callback_data="adm_remove_balance"),
+        InlineKeyboardButton("🔍 عرض آخر الاستلامات المسجلة", callback_data="adm_recent_logs")
     )
     bot.send_message(chat_id, "👑 **لوحة تحكم الأدمن:**", reply_markup=markup, parse_mode="Markdown")
 
@@ -243,6 +246,15 @@ def admin_callbacks(call):
         bot.answer_callback_query(call.id)
         msg = bot.send_message(call.message.chat.id, "👤 **أدخل يوزر المستخدم لإزالة الرصيد:**", parse_mode="Markdown")
         bot.register_next_step_handler(msg, ask_username_for_removal)
+    elif action == 'adm_recent_logs':
+        bot.answer_callback_query(call.id)
+        logs_text = "📋 **آخر الاستلامات والرسائل المحفوظة:**\n\n"
+        if not recent_incoming_receipts:
+            logs_text += "لا توجد رسائل مسجلة حتى الآن."
+        else:
+            for item in recent_incoming_receipts[-5:]:
+                logs_text += f"▪️ المبلغ: {item.get('amount')} | الهاتف: {item.get('phone')}\n📝 النص: {item.get('text')[:50]}...\n〰️\n"
+        bot.send_message(call.message.chat.id, logs_text, parse_mode="Markdown")
 
 def ask_username_for_balance(message):
     if str(message.chat.id) != str(ADMIN_ID): return
@@ -308,7 +320,7 @@ def check_provider_wallet_call(message):
         bot.send_message(message.chat.id, f"خطأ: {e}")
 
 # ==========================================
-# 6. الأزرار العامة والشحن (قبول من 5 جنيه)
+# 6. الأزرار العامة والشحن
 # ==========================================
 @bot.message_handler(func=lambda msg: is_btn(msg, 'language'))
 def choose_language(message):
@@ -347,7 +359,7 @@ def ask_amount(message):
 def process_amount(message):
     try:
         amount_egp = float(message.text)
-        if not (5 <= amount_egp <= 1000): raise ValueError  # تعديل الحد الأدنى ليصبح 5 جنيه
+        if not (5 <= amount_egp <= 1000): raise ValueError
     except:
         bot.send_message(message.chat.id, "⚠️ يرجى إدخال مبلغ صحيح بين 5 و 1000 جنيه.")
         return
@@ -381,22 +393,37 @@ def payment_webhook():
     try:
         incoming_data = request.json if request.is_json else (request.form if request.form else {})
         message_text = " ".join([str(v) for v in incoming_data.values() if v]) if isinstance(incoming_data, dict) else str(incoming_data)
+        
+        # الذكاء الاصطناعي يحلل كل رسالة واردة ويستخرج البيانات بدقة
         ai_result = ai_analyze_payment_receipt(message_text)
         
         if ai_result.get('valid') == True:
             paid_amount = float(ai_result.get('amount', 0))
             sender_phone = str(ai_result.get('phone', ''))
             
-            # البحث عن المعاملة المطابقة حتى للمبالغ الصغيرة (مثل 5 جنيه)
-            target_user_id = next((info['user_id'] for uid, info in active_pending_payments.items() if abs(info['amount'] - paid_amount) < 1.0 or sender_phone in uid), None)
+            # حفظ الرسالة في أرشيف آخر الاستلامات للمراجعة والمقارنة
+            recent_incoming_receipts.append({"amount": paid_amount, "phone": sender_phone, "text": message_text})
+            if len(recent_incoming_receipts) > 20: recent_incoming_receipts.pop(0)
+
+            # المقارنة الشاملة: فحص تطابق المبلغ ورقم الهاتف المسجل مع العمليات المعلقة
+            target_user_id = None
+            for p_phone, info in list(active_pending_payments.items()):
+                amount_matched = abs(info['amount'] - paid_amount) < 1.0
+                phone_matched = (sender_phone and p_phone in sender_phone) or (sender_phone == "")
+                
+                if amount_matched and phone_matched:
+                    target_user_id = info['user_id']
+                    del active_pending_payments[p_phone]
+                    break
             
             if target_user_id:
                 update_balance(target_user_id, paid_amount)
-                # إبلاغ العميل بالصيغة المطلوبة تماماً
                 bot.send_message(target_user_id, f"🎉 **لقد استلمنا مبلغ {paid_amount} جنيه، وتمت إضافتها إلى رصيدك فوراً!**", parse_mode="Markdown")
-                return {"status": "success"}, 200
-        return {"status": "ignored"}, 200
+                return {"status": "success", "message": "Matched and balance updated"}, 200
+                
+        return {"status": "received_and_logged"}, 200
     except Exception as e:
+        print(f"Error in webhook: {e}")
         return {"status": "error"}, 200
 
 # ==========================================
@@ -489,6 +516,14 @@ def process_purchase(call):
 
 def run_flask():
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)), debug=False, use_reloader=False)
+
+# ==========================================
+# تفعيل أزرار الأدمن الجديدة
+# ==========================================
+@bot.message_handler(commands=['admin'])
+def admin_command(message):
+    if str(message.chat.id) != str(ADMIN_ID): return
+    open_admin_panel(message.chat.id)
 
 if __name__ == '__main__':
     threading.Thread(target=run_flask, daemon=True).start()
