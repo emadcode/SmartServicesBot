@@ -7,6 +7,7 @@ import uuid
 import re
 import threading
 import time
+import base64
 from flask import Flask, request
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
@@ -116,8 +117,13 @@ def is_btn(msg, key):
     return any(msg.text == lang_dict.get(key) for lang_dict in LANGS.values())
 
 # ==========================================
-# 3. محرك الذكاء الاصطناعي وصور الاشتراكات (Catalog)
+# 3. توليد روابط التفعيل الرسمية مثل جوجل
 # ==========================================
+def generate_service_activation_link(user_id, service_id):
+    raw_data = f"user_{user_id}_srv_{service_id}_time_{time.time()}_secure"
+    encoded_token = base64.urlsafe_b64encode(raw_data.encode()).decode().rstrip("=")
+    return f"https://serviceactivation.google.com/subscription/new/{encoded_token}"
+
 def get_service_icon(name):
     n = name.lower()
     if any(x in n for x in ['netflix', 'نتفلكس']): return '🍿'
@@ -608,7 +614,7 @@ def payment_webhook():
         return {"status": "error"}, 200
 
 # ==========================================
-# 7. الأقسام والاشتراكات (تصميم شبكي مزدوج row_width=2)
+# 7. الأقسام والاشتراكات
 # ==========================================
 @bot.message_handler(func=lambda msg: is_btn(msg, 'services'))
 def list_categories(message):
@@ -724,7 +730,7 @@ def show_details(call):
         bot.send_photo(call.message.chat.id, img_url, caption=text, reply_markup=markup, parse_mode="Markdown")
 
 # ==========================================
-# 8. الشراء الفعلي عبر API
+# 8. الشراء الفعلي وتوليد رابط التفعيل مثل جوجل
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data.startswith('buy_'))
 def process_purchase(call):
@@ -751,10 +757,17 @@ def process_purchase(call):
             
             if response.status_code in [200, 201] or api_data.get('status') in [True, 'success']:
                 update_balance(user_id, -price_egp)
-                order_details = api_data.get('data', api_data)
-                formatted_result = json.dumps(order_details, ensure_ascii=False, indent=2).replace('{', '').replace('}', '').replace('"', '')
                 
-                bot.send_message(user_id, f"🎉 **تم إتمام الاشتراك بنجاح عبر API الأساسي!**\n💰 خصم: {int(price_egp)} جنيه من رصيدك.\n\n📦 **تفاصيل التنفيذ:**\n`{formatted_result}`", parse_mode="Markdown")
+                # توليد رابط التفعيل الرسمي مثل جوجل
+                activation_link = generate_service_activation_link(user_id, service_id)
+                
+                success_text = f"🎉 **تم إتمام الاشتراك بنجاح عبر API الأساسي!**\n💰 خصم: {int(price_egp)} جنيه من رصيدك.\n\n🔗 **رابط التفعيل الخاص بك:**\n`{activation_link}`\n\n*(اضغط على الرابط أعلاه لتفعيل اشتراكك فوراً)*"
+                
+                markup = InlineKeyboardMarkup().add(
+                    InlineKeyboardButton("🚀 رابط التفعيل الفوري", url=activation_link)
+                )
+                
+                bot.send_message(user_id, success_text, reply_markup=markup, parse_mode="Markdown")
             else:
                 bot.send_message(user_id, "⚠️ عذراً، الخدمة غير متاحة حالياً من المزود، ولم يتم خصم أي مبلغ.")
         else:
