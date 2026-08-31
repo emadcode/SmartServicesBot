@@ -26,7 +26,21 @@ PAYMENT_NUMBER = "01028835231"        # رقم المحفظة / إنستا با�
 DOLLAR_PRICE_EGP = 50  
 FIXED_PROFIT_EGP = 100 
 
-CUSTOM_PRICES = {}
+# ملف خاص لحفظ الأسعار المخصصة التي تحددها أنت للخدمات محلياً
+PRICES_FILE = 'custom_prices.json'
+
+def load_custom_prices():
+    if not os.path.exists(PRICES_FILE): return {}
+    try:
+        with open(PRICES_FILE, 'r', encoding='utf-8') as f: return json.load(f)
+    except: return {}
+
+def save_custom_prices(prices):
+    try:
+        with open(PRICES_FILE, 'w', encoding='utf-8') as f: json.dump(prices, f, indent=4, ensure_ascii=False)
+    except: pass
+
+CUSTOM_PRICES = load_custom_prices()
 active_offers = {} 
 
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -36,7 +50,7 @@ active_pending_payments = {}
 recent_incoming_receipts = []
 
 # ==========================================
-# 2. قاعدة البيانات الآمنة
+# 2. قاعدة البيانات الآمنة للأرصدة
 # ==========================================
 DB_FILE = 'users_db.json'
 user_payment_data = {} 
@@ -103,7 +117,7 @@ def is_btn(msg, key):
     return any(msg.text == lang_dict.get(key) for lang_dict in LANGS.values())
 
 # ==========================================
-# 3. مساعدات الذكاء الاصطناعي والتصميم المريح
+# 3. مساعدات الذكاء الاصطناعي والتصميم
 # ==========================================
 def get_service_icon(name):
     n = name.lower()
@@ -220,7 +234,7 @@ def main_menu(user_id, lang='ar'):
     return markup
 
 # ==========================================
-# 5. لوحة تحكم الأدمن
+# 5. لوحة تحكم الأدمن وتعديل الأسعار المحلية
 # ==========================================
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -240,9 +254,9 @@ def handle_admin_button(message):
 
 def open_admin_panel(chat_id):
     markup = InlineKeyboardMarkup(row_width=1).add(
+        InlineKeyboardButton("⚙️ تعديل أسعار الخدمات المحلية", callback_data="adm_edit_prices_menu"),
         InlineKeyboardButton("🏷️ إنشاء وعرض خصم لخدمة (عبر AI)", callback_data="adm_create_offer"),
         InlineKeyboardButton("👥 المستخدمين والأرصدة الحالية", callback_data="adm_users_list"),
-        InlineKeyboardButton("📋 قائمة الخدمات وتعديل أسعارها", callback_data="adm_prices"),
         InlineKeyboardButton("💼 فحص محفظة المتجر الأساسية (/wallet)", callback_data="adm_wallet"),
         InlineKeyboardButton("💰 شحن رصيد لمستخدم", callback_data="adm_add_balance"),
         InlineKeyboardButton("💸 إزالة رصيد من مستخدم", callback_data="adm_remove_balance")
@@ -253,7 +267,20 @@ def open_admin_panel(chat_id):
 def admin_callbacks(call):
     if str(call.message.chat.id) != str(ADMIN_ID): return
     action = call.data
-    if action == 'adm_create_offer':
+    if action == 'adm_edit_prices_menu':
+        bot.answer_callback_query(call.id)
+        try:
+            services = requests.get(f"{BASE_URL}/services", headers={"Authorization": f"Bearer {PROVIDER_TOKEN}"}, timeout=10).json().get('data', [])
+            markup = InlineKeyboardMarkup(row_width=1)
+            for s in services[:20]: # عرض أول 20 خدمة لتعديل أسعارها
+                s_id = str(s.get('id'))
+                s_name = s.get('name_ar', s.get('name', 'خدمة'))
+                current_p = CUSTOM_PRICES.get(s_id, int(float(s.get('rate', s.get('price', 0))) * DOLLAR_PRICE_EGP) + FIXED_PROFIT_EGP)
+                markup.add(InlineKeyboardButton(f"✏️ {s_name} [{current_p} ج]", callback_data=f"edit_p_{s_id}"))
+            bot.send_message(call.message.chat.id, "📌 **اختر الخدمة التي تريد تعديل سعرها المخصص محلياً:**", reply_markup=markup, parse_mode="Markdown")
+        except:
+            bot.send_message(call.message.chat.id, "⚠️ تعذر جلب الخدمات.")
+    elif action == 'adm_create_offer':
         bot.answer_callback_query(call.id)
         try:
             services = requests.get(f"{BASE_URL}/services", headers={"Authorization": f"Bearer {PROVIDER_TOKEN}"}, timeout=10).json().get('data', [])
@@ -275,9 +302,6 @@ def admin_callbacks(call):
             text += f"▪️ المعرف: `{uid}` | اليوزر: @{uname} | الرصيد: **{bal} جنيه**\n"
         if len(text) > 4000: text = text[:4000] + "\n...(تم الاختصار)"
         bot.send_message(call.message.chat.id, text, parse_mode="Markdown")
-    elif action == 'adm_prices':
-        bot.answer_callback_query(call.id)
-        get_all_services_for_admin_call(call.message)
     elif action == 'adm_wallet':
         bot.answer_callback_query(call.id)
         check_provider_wallet_call(call.message)
@@ -289,6 +313,21 @@ def admin_callbacks(call):
         bot.answer_callback_query(call.id)
         msg = bot.send_message(call.message.chat.id, "👤 **أدخل يوزر المستخدم لإزالة الرصيد:**", parse_mode="Markdown")
         bot.register_next_step_handler(msg, ask_username_for_removal)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('edit_p_'))
+def edit_price_selected(call):
+    service_id = call.data.split('_')[2]
+    msg = bot.send_message(call.message.chat.id, "💵 **أدخل السعر الجديد المخصص لهذه الخدمة (بالجنيه المصري):**", parse_mode="Markdown")
+    bot.register_next_step_handler(msg, lambda m: save_new_custom_price(m, service_id))
+
+def save_new_custom_price(message, service_id):
+    try:
+        new_price = float(message.text.strip())
+        CUSTOM_PRICES[str(service_id)] = new_price
+        save_custom_prices(CUSTOM_PRICES)
+        bot.send_message(ADMIN_ID, f"✅ **تم تحديث سعر الخدمة محلياً بنجاح إلى: {new_price} جنيه**", parse_mode="Markdown")
+    except:
+        bot.send_message(message.chat.id, "⚠️ قيمة غير صالحة.")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('offer_srv_'))
 def offer_service_selected(call):
@@ -376,16 +415,6 @@ def execute_admin_balance_remove(message, target_uid):
         bot.send_message(ADMIN_ID, f"🗑️ تم خصم `{amount} جنيه`.", parse_mode="Markdown")
     except:
         bot.send_message(message.chat.id, "⚠️ قيمة غير صالحة.")
-
-def get_all_services_for_admin_call(message):
-    try:
-        services = requests.get(f"{BASE_URL}/services", headers={"Authorization": f"Bearer {PROVIDER_TOKEN}"}, timeout=10).json().get('data', [])
-        text = "📋 **قائمة الخدمات عبر API الأساسي:**\n\n"
-        for s in services[:30]:
-            text += f"▪️ {s.get('name')} | الكود: `{s.get('id')}` | السعر: {s.get('rate')}$\n"
-        bot.send_message(message.chat.id, text, parse_mode="Markdown")
-    except Exception as e:
-        bot.send_message(message.chat.id, f"خطأ: {e}")
 
 def check_provider_wallet_call(message):
     try:
@@ -610,6 +639,7 @@ def show_services(call):
             s_name = get_name(s, lang)
             s_id = str(s.get('id'))
             
+            # استخدام السعر المخصص الذي حددته أنت أو السعر الافتراضي
             price_egp = CUSTOM_PRICES.get(s_id, int(float(s.get('rate', s.get('price', 0))) * DOLLAR_PRICE_EGP) + FIXED_PROFIT_EGP)
             if s_id in active_offers and time.time() < active_offers[s_id]['expiry']:
                 price_egp = active_offers[s_id]['price']
