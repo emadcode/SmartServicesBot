@@ -103,7 +103,7 @@ def is_btn(msg, key):
     return any(msg.text == lang_dict.get(key) for lang_dict in LANGS.values())
 
 # ==========================================
-# 3. مساعدات الذكاء الاصطناعي والتصميم
+# 3. مساعدات الذكاء الاصطناعي والتصميم المريح
 # ==========================================
 def get_service_icon(name):
     n = name.lower()
@@ -115,7 +115,7 @@ def get_service_icon(name):
     if any(x in n for x in ['spotify', 'أنغامي', 'music']): return '🎵'
     if any(x in n for x in ['pubg', 'ببجي', 'game']): return '🎮'
     if any(x in n for x in ['vpn', 'ترجام', 'proxy']): return '🔒'
-    return '⚡'
+    return '💎'
 
 translation_cache = {}
 
@@ -197,10 +197,10 @@ LANGS = {
         'ask_phone': "📱 **أرسل رقم هاتفك الذي قمت بالتحويل منه (مثلاً: 01012345678):**",
         'waiting_auto_pay': "⏳ **جاري انتظار وتأكيد التحويل...**\n\nقم بالتحويل الآن بقيمة `{2} جنيه` إلى الرقم الأزرق التالي:\n👉 **[01028835231](tel:01028835231)**\n\n📱 *رقم هاتفك المسجل:* `{3}`\n⏱️ *ملاحظة:* العملية صالحة لمدة **5 دقائق فقط** وسيتم شحن رصيدك تلقائياً.",
         'cancel': "❌ تم الإلغاء.", 'insufficient': "⚠️ **رصيدك الحالي غير كافٍ لإتمام عملية الشراء!**\n\n💰 السعر المطلوب: `{0} جنيه`\n💳 رصيدك الحالي: `{1} جنيه`\n\nيرجى شحن رصيدك لإتمام الطلب.", 
-        'buy_btn': "💳 شراء فوري عبر API", 'back_btn': "🔙 رجوع",
+        'buy_btn': "💳 شراء فوري عبر API", 'back_btn': "🔙 رجوع للخلف",
         'account_info': "👤 **معلومات حسابك الشخصي:**\n\n🆔 رقم الحساب: `{}`\n💰 الرصيد المتاح: **{} {}**",
         'support_info': "💬 **للتواصل مع الدعم الفني:**\n\nالمسؤول: {}",
-        'choose_cat': "🌟 **اختر القسم المطلوب استعراضه:**", 'available_serv': "📌 **الخدمات المتاحة مع أسعارها:**",
+        'choose_cat': "🎨 **اختر القسم المطلوب استعراضه:**", 'available_serv': "✨ **اختر الخدمة المطلوبة:**",
         'details': "🎯 **الخدمة:** {}\n\n📝 **التفاصيل:**\n{}\n\n💎 **السعر النهائي:** **{} {}**\n🆔 **كود الخدمة:** `{}`"
     }
 }
@@ -555,7 +555,7 @@ def payment_webhook():
         return {"status": "error"}, 200
 
 # ==========================================
-# 7. الأقسام والخدمات مع الصور (Catalog) والأسعار المجاورة
+# 7. الأقسام والخدمات (تصميم شبكي مزدوج row_width=2 مريح للعين)
 # ==========================================
 @bot.message_handler(func=lambda msg: is_btn(msg, 'services'))
 def list_categories(message):
@@ -569,9 +569,12 @@ def list_categories(message):
             if cid and cid not in categories: 
                 c_name = get_name(cat, lang)
                 categories[cid] = (c_name, get_service_icon(c_name))
+        
         markup = InlineKeyboardMarkup(row_width=2)
-        markup.add(*[InlineKeyboardButton(f"{icon} {name}", callback_data=f"cat_{cid}") for cid, (name, icon) in categories.items()])
-        bot.send_message(message.chat.id, "🌟 **اختر القسم المناسب من المتجر الأساسي:**", reply_markup=markup, parse_mode="Markdown")
+        buttons = [InlineKeyboardButton(f"📁 {icon} {name}", callback_data=f"cat_{cid}") for cid, (name, icon) in categories.items()]
+        markup.add(*buttons)
+        
+        bot.send_message(message.chat.id, "🎨 **اختر القسم المناسب لتصفح الخدمات:**", reply_markup=markup, parse_mode="Markdown")
     except:
         bot.send_message(message.chat.id, "⚠️ تعذر جلب الخدمات من API الأساسي حالياً.")
 
@@ -586,23 +589,27 @@ def back_to_categories(call):
         if cid and cid not in categories:
             c_name = get_name(cat, lang)
             categories[cid] = (c_name, get_service_icon(c_name))
+            
     markup = InlineKeyboardMarkup(row_width=2)
-    markup.add(*[InlineKeyboardButton(f"{icon} {name}", callback_data=f"cat_{cid}") for cid, (name, icon) in categories.items()])
-    bot.edit_message_text("🌟 **اختر القسم المناسب من المتجر الأساسي:**", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+    buttons = [InlineKeyboardButton(f"📁 {icon} {name}", callback_data=f"cat_{cid}") for cid, (name, icon) in categories.items()]
+    markup.add(*buttons)
+    
+    bot.edit_message_text("🎨 **اختر القسم المناسب لتصفح الخدمات:**", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('cat_'))
 def show_services(call):
     cat_id, user_info = call.data.split('_')[1], get_user(call.message.chat.id)
     lang, curr = user_info['lang'], user_info.get('currency', 'EGP')
     services = requests.get(f"{BASE_URL}/services", headers={"Authorization": f"Bearer {PROVIDER_TOKEN}"}, timeout=10).json().get('data', [])
-    markup = InlineKeyboardMarkup(row_width=1)
+    
+    markup = InlineKeyboardMarkup(row_width=2)
+    service_buttons = []
     
     for s in services:
         if str(s.get('category', {}).get('id')) == str(cat_id):
             s_name = get_name(s, lang)
             s_id = str(s.get('id'))
             
-            # حساب السعر لعرضه بجانب الخدمة بشكل جذاب
             price_egp = CUSTOM_PRICES.get(s_id, int(float(s.get('rate', s.get('price', 0))) * DOLLAR_PRICE_EGP) + FIXED_PROFIT_EGP)
             if s_id in active_offers and time.time() < active_offers[s_id]['expiry']:
                 price_egp = active_offers[s_id]['price']
@@ -614,11 +621,13 @@ def show_services(call):
             if s_id in active_offers and time.time() < active_offers[s_id]['expiry']:
                 icon = "🔥 " + icon
 
-            btn_text = f"{icon} {s_name} ➔ [{disp_price} {disp_curr}]"
-            markup.add(InlineKeyboardButton(btn_text, callback_data=f"srv_{s_id}"))
+            btn_text = f"{icon} {s_name} | {disp_price} {disp_curr}"
+            service_buttons.append(InlineKeyboardButton(btn_text, callback_data=f"srv_{s_id}"))
             
-    markup.add(InlineKeyboardButton("🔙 رجوع", callback_data="back_to_cats"))
-    bot.edit_message_text("📌 **الخدمات المتاحة مع أسعارها (اضغط على الخدمة للتفاصيل):**", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+    markup.add(*service_buttons)
+    markup.add(InlineKeyboardButton("🔙 رجوع للقائمة الرئيسية", callback_data="back_to_cats"))
+    
+    bot.edit_message_text("✨ **الخدمات المتاحة داخل هذا القسم (اختر خدمتك المفضلة):**", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('srv_'))
 def show_details(call):
@@ -648,7 +657,6 @@ def show_details(call):
             InlineKeyboardButton(LANGS[lang]['back_btn'], callback_data=f"cat_{selected.get('category', {}).get('id', '')}")
         )
         
-        # دعم صور الخدمات (Catalog Image إذا توفرت من الـ API أو صورة افتراضية جذابة)
         img_url = selected.get('image') or "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=600&auto=format&fit=crop"
         
         try:
