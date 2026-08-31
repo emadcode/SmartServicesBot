@@ -26,7 +26,6 @@ PAYMENT_NUMBER = "01028835231"        # رقم المحفظة / إنستا با�
 DOLLAR_PRICE_EGP = 50  
 FIXED_PROFIT_EGP = 100 
 
-# ملف خاص لحفظ الأسعار المخصصة التي تحددها أنت للخدمات محلياً
 PRICES_FILE = 'custom_prices.json'
 
 def load_custom_prices():
@@ -50,7 +49,7 @@ active_pending_payments = {}
 recent_incoming_receipts = []
 
 # ==========================================
-# 2. قاعدة البيانات الآمنة للأرصدة
+# 2. قاعدة البيانات الآمنة
 # ==========================================
 DB_FILE = 'users_db.json'
 user_payment_data = {} 
@@ -117,7 +116,7 @@ def is_btn(msg, key):
     return any(msg.text == lang_dict.get(key) for lang_dict in LANGS.values())
 
 # ==========================================
-# 3. مساعدات الذكاء الاصطناعي والتصميم
+# 3. مساعدات الذكاء الاصطناعي وتوليد صور الخدمات
 # ==========================================
 def get_service_icon(name):
     n = name.lower()
@@ -130,6 +129,24 @@ def get_service_icon(name):
     if any(x in n for x in ['pubg', 'ببجي', 'game']): return '🎮'
     if any(x in n for x in ['vpn', 'ترجام', 'proxy']): return '🔒'
     return '💎'
+
+def get_ai_service_image(service_name):
+    # استخدام صور عالية الجودة ومتنوعة تناسب اسم الخدمة عبر Unsplash أو توليد رابط ذكي بناء على الاسم
+    n = service_name.lower()
+    if 'netflix' in n:
+        return "https://images.unsplash.com/photo-1574375927938-d5a98e8ffe85?q=80&w=800&auto=format&fit=crop"
+    elif 'chatgpt' in n or 'gpt' in n or 'openai' in n:
+        return "https://images.unsplash.com/photo-1677442136019-21780efad99a?q=80&w=800&auto=format&fit=crop"
+    elif 'gemini' in n or 'جيميناي' in n or 'ai' in n:
+        return "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?q=80&w=800&auto=format&fit=crop"
+    elif 'canva' in n or 'تصميم' in n:
+        return "https://images.unsplash.com/photo-1626785774573-4b799315345d?q=80&w=800&auto=format&fit=crop"
+    elif 'shahid' in n or 'شاهد' in n or 'tv' in n:
+        return "https://images.unsplash.com/photo-1593784991095-a205069470b6?q=80&w=800&auto=format&fit=crop"
+    elif 'vpn' in n or 'حماية' in n:
+        return "https://images.unsplash.com/photo-1563986768609-322da13575f3?q=80&w=800&auto=format&fit=crop"
+    else:
+        return "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=800&auto=format&fit=crop"
 
 translation_cache = {}
 
@@ -234,7 +251,7 @@ def main_menu(user_id, lang='ar'):
     return markup
 
 # ==========================================
-# 5. لوحة تحكم الأدمن وتعديل الأسعار المحلية
+# 5. لوحة تحكم الأدمن
 # ==========================================
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -272,12 +289,12 @@ def admin_callbacks(call):
         try:
             services = requests.get(f"{BASE_URL}/services", headers={"Authorization": f"Bearer {PROVIDER_TOKEN}"}, timeout=10).json().get('data', [])
             markup = InlineKeyboardMarkup(row_width=1)
-            for s in services[:20]: # عرض أول 20 خدمة لتعديل أسعارها
+            for s in services[:20]:
                 s_id = str(s.get('id'))
                 s_name = s.get('name_ar', s.get('name', 'خدمة'))
                 current_p = CUSTOM_PRICES.get(s_id, int(float(s.get('rate', s.get('price', 0))) * DOLLAR_PRICE_EGP) + FIXED_PROFIT_EGP)
                 markup.add(InlineKeyboardButton(f"✏️ {s_name} [{current_p} ج]", callback_data=f"edit_p_{s_id}"))
-            bot.send_message(call.message.chat.id, "📌 **اختر الخدمة التي تريد تعديل سعرها المخصص محلياً:**", reply_markup=markup, parse_mode="Markdown")
+            bot.send_message(call.message.chat.id, "📌 **اختر الخدمة لتعديل سعرها محلياً:**", reply_markup=markup, parse_mode="Markdown")
         except:
             bot.send_message(call.message.chat.id, "⚠️ تعذر جلب الخدمات.")
     elif action == 'adm_create_offer':
@@ -584,7 +601,7 @@ def payment_webhook():
         return {"status": "error"}, 200
 
 # ==========================================
-# 7. الأقسام والخدمات (تصميم شبكي مزدوج row_width=2 مريح للعين)
+# 7. الأقسام والخدمات (تصميم شبكي مزدوج row_width=2 مريح للعين مع صور AI)
 # ==========================================
 @bot.message_handler(func=lambda msg: is_btn(msg, 'services'))
 def list_categories(message):
@@ -639,7 +656,6 @@ def show_services(call):
             s_name = get_name(s, lang)
             s_id = str(s.get('id'))
             
-            # استخدام السعر المخصص الذي حددته أنت أو السعر الافتراضي
             price_egp = CUSTOM_PRICES.get(s_id, int(float(s.get('rate', s.get('price', 0))) * DOLLAR_PRICE_EGP) + FIXED_PROFIT_EGP)
             if s_id in active_offers and time.time() < active_offers[s_id]['expiry']:
                 price_egp = active_offers[s_id]['price']
@@ -681,13 +697,15 @@ def show_details(call):
             display_price = round(price_egp / DOLLAR_PRICE_EGP, 2)
             display_curr = "دولار"
 
-        text = LANGS[lang]['details'].format(get_name(selected, lang), get_desc(selected, lang), display_price, display_curr, service_id)
+        s_name = get_name(selected, lang)
+        text = LANGS[lang]['details'].format(s_name, get_desc(selected, lang), display_price, display_curr, service_id)
         markup = InlineKeyboardMarkup(row_width=1).add(
             InlineKeyboardButton(LANGS[lang]['buy_btn'], callback_data=f"buy_{service_id}_{price_egp}"),
             InlineKeyboardButton(LANGS[lang]['back_btn'], callback_data=f"cat_{selected.get('category', {}).get('id', '')}")
         )
         
-        img_url = selected.get('image') or "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=600&auto=format&fit=crop"
+        # اختيار صورة احترافية مخصصة بناءً على اسم الخدمة أو الكالوجو الافتراضي
+        img_url = get_ai_service_image(s_name)
         
         try:
             bot.delete_message(call.message.chat.id, call.message.message_id)
