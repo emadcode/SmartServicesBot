@@ -116,7 +116,7 @@ def is_btn(msg, key):
     return any(msg.text == lang_dict.get(key) for lang_dict in LANGS.values())
 
 # ==========================================
-# 3. مساعدات الذكاء الاصطناعي عبر Requests مباشرة
+# 3. محرك الذكاء الاصطناعي (Gemini API) لتوليد الصور والواجهات
 # ==========================================
 def get_service_icon(name):
     n = name.lower()
@@ -130,22 +130,44 @@ def get_service_icon(name):
     if any(x in n for x in ['vpn', 'ترجام', 'proxy']): return '🔒'
     return '💎'
 
+def ai_generate_subscription_interface(service_name, raw_desc):
+    if not GEMINI_API_KEY:
+        return f"🎯 **اشتراك مميز:** {service_name}\n\n📝 **التفاصيل:**\n{raw_desc}"
+    try:
+        prompt = f"Rewrite and design a professional, highly attractive subscription interface in Arabic for the service '{service_name}' with rich emojis, clear benefits, and organized sections. Original description: {raw_desc}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+        headers = {'Content-Type': 'application/json'}
+        payload = {"contents": [{"parts": [{"text": prompt}]}]}
+        response = requests.post(url, headers=headers, json=payload, timeout=8)
+        if response.status_code == 200:
+            return response.json()['candidates'][0]['content']['parts'][0]['text']
+    except:
+        pass
+    return f"🎯 **اشتراك مميز:** {service_name}\n\n📝 **التفاصيل:**\n{raw_desc}"
+
 def get_ai_service_image(service_name):
-    n = service_name.lower()
-    if 'netflix' in n:
-        return "https://images.unsplash.com/photo-1574375927938-d5a98e8ffe85?q=80&w=800&auto=format&fit=crop"
-    elif 'chatgpt' in n or 'gpt' in n or 'openai' in n:
-        return "https://images.unsplash.com/photo-1677442136019-21780efad99a?q=80&w=800&auto=format&fit=crop"
-    elif 'gemini' in n or 'جيميناي' in n or 'ai' in n:
-        return "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?q=80&w=800&auto=format&fit=crop"
-    elif 'canva' in n or 'تصميم' in n:
-        return "https://images.unsplash.com/photo-1626785774573-4b799315345d?q=80&w=800&auto=format&fit=crop"
-    elif 'shahid' in n or 'شاهد' in n or 'tv' in n:
-        return "https://images.unsplash.com/photo-1593784991095-a205069470b6?q=80&w=800&auto=format&fit=crop"
-    elif 'vpn' in n or 'حماية' in n:
-        return "https://images.unsplash.com/photo-1563986768609-322da13575f3?q=80&w=800&auto=format&fit=crop"
-    else:
+    if not GEMINI_API_KEY:
         return "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=800&auto=format&fit=crop"
+    try:
+        prompt = f"Provide a direct high-quality Unsplash image URL (only the URL, nothing else) that visually represents the digital subscription service '{service_name}' like Netflix, ChatGPT, Canva, or streaming."
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+        headers = {'Content-Type': 'application/json'}
+        payload = {"contents": [{"parts": [{"text": prompt}]}]}
+        response = requests.post(url, headers=headers, json=payload, timeout=6)
+        if response.status_code == 200:
+            ai_text = response.json()['candidates'][0]['content']['parts'][0]['text'].strip()
+            url_match = re.search(r'(https?://[^\s]+)', ai_text)
+            if url_match:
+                return url_match.group(1)
+    except:
+        pass
+    
+    # صور احتياطية ذكية حسب الاسم
+    n = service_name.lower()
+    if 'netflix' in n: return "https://images.unsplash.com/photo-1574375927938-d5a98e8ffe85?q=80&w=800&auto=format&fit=crop"
+    if 'gpt' in n or 'openai' in n: return "https://images.unsplash.com/photo-1677442136019-21780efad99a?q=80&w=800&auto=format&fit=crop"
+    if 'gemini' in n: return "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?q=80&w=800&auto=format&fit=crop"
+    return "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=800&auto=format&fit=crop"
 
 translation_cache = {}
 
@@ -165,11 +187,11 @@ def ai_generate_offer_banner(service_name, old_price, new_price):
     if not GEMINI_API_KEY:
         return f"🔥 **عرض خاص لفترة محدودة!**\n\n🎯 الخدمة: {service_name}\n❌ السعر القديم: {old_price} جنيه\n💎 السعر الحالي: **{new_price} جنيه**"
     try:
-        prompt = f"Design an attractive, professional promotional banner and description in Arabic with rich emojis for a special limited-time offer on '{service_name}'. Old price: {old_price} EGP, New promo price: {new_price} EGP."
+        prompt = f"Design an attractive promotional banner in Arabic for '{service_name}'. Old price: {old_price} EGP, New promo price: {new_price} EGP."
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
         headers = {'Content-Type': 'application/json'}
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
-        response = requests.post(url, headers=headers, json=payload, timeout=10)
+        response = requests.post(url, headers=headers, json=payload, timeout=8)
         if response.status_code == 200:
             return response.json()['candidates'][0]['content']['parts'][0]['text']
     except:
@@ -187,7 +209,7 @@ def ai_analyze_payment_receipt(message_text):
         return {"valid": extracted_amount > 0, "amount": extracted_amount, "phone": extracted_phone}
 
     try:
-        prompt = f"Analyze this incoming message text thoroughly. Extract strictly a JSON object with keys: valid (true/false if financial transfer), amount (float number), phone (string phone number). Text: {message_text}"
+        prompt = f"Analyze this incoming message text. Extract strictly a JSON object with keys: valid (true/false), amount (float number), phone (string phone number). Text: {message_text}"
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
         headers = {'Content-Type': 'application/json'}
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
@@ -211,12 +233,12 @@ def get_desc(item, lang):
     return desc if lang == 'ar' else (item.get('description_en') or translate_text(desc, lang))
 
 # ==========================================
-# 4. قاموس الواجهة
+# 4. واجهة البوت واللغات
 # ==========================================
 LANGS = {
     'ar': {
-        'welcome': "🌟 **مرحباً بك في متجرنا الرقمي الذكي المتكامل!**\n\n💎 استمتع بتجربة تسوق فريدة وخدمات رقمية فورية وآمنة 100%.\n\n👇 اختر ما يناسبك من القائمة أدناه:",
-        'keys': "مفاتيح API 🔑", 'orders': "طلباتي 📦", 'services': "الخدمات والعروض الفورية 🛍️",
+        'welcome': "🌟 **مرحباً بك في متجر الاشتراكات الرقمية الذكي!**\n\n💎 استمتع بخدماتنا الفورية والآمنة 100%.\n\n👇 اختر ما يناسبك من القائمة أدناه:",
+        'keys': "مفاتيح API 🔑", 'orders': "طلباتي 📦", 'services': "الاشتراكات والعروض 🛍️",
         'support': "الدعم الفني 💬", 'account': "حسابي 👤", 'language': "اللغة 🌐",
         'currency': "العملة 💱", 'referral': "الإحالات والأرباح 🎁", 'add_balance': "شحن الرصيد 💳",
         'admin_panel_btn': "👑 لوحة التحكم",
@@ -227,11 +249,11 @@ LANGS = {
         'ask_phone': "📱 **أرسل رقم هاتفك الذي قمت بالتحويل منه (مثلاً: 01012345678):**",
         'waiting_auto_pay': "⏳ **جاري انتظار وتأكيد التحويل...**\n\nقم بالتحويل الآن بقيمة `{2} جنيه` إلى الرقم الأزرق التالي:\n👉 **[01028835231](tel:01028835231)**\n\n📱 *رقم هاتفك المسجل:* `{3}`\n⏱️ *ملاحظة:* العملية صالحة لمدة **5 دقائق فقط** وسيتم شحن رصيدك تلقائياً.",
         'cancel': "❌ تم الإلغاء.", 'insufficient': "⚠️ **رصيدك الحالي غير كافٍ لإتمام عملية الشراء!**\n\n💰 السعر المطلوب: `{0} جنيه`\n💳 رصيدك الحالي: `{1} جنيه`\n\nيرجى شحن رصيدك لإتمام الطلب.", 
-        'buy_btn': "💳 شراء فوري عبر API", 'back_btn': "🔙 رجوع للخلف",
+        'buy_btn': "💳 شراء الاشتراك فوراً", 'back_btn': "🔙 رجوع للخلف",
         'account_info': "👤 **معلومات حسابك الشخصي:**\n\n🆔 رقم الحساب: `{}`\n💰 الرصيد المتاح: **{} {}**",
         'support_info': "💬 **للتواصل مع الدعم الفني:**\n\nالمسؤول: {}",
-        'choose_cat': "🎨 **اختر القسم المطلوب استعراضه:**", 'available_serv': "✨ **اختر الخدمة المطلوبة:**",
-        'details': "🎯 **الخدمة:** {}\n\n📝 **التفاصيل:**\n{}\n\n💎 **السعر النهائي:** **{} {}**\n🆔 **كود الخدمة:** `{}`"
+        'choose_cat': "🎨 **اختر فئة الاشتراكات المطلوبة:**", 'available_serv': "✨ **اختر الاشتراك المطلوب:**",
+        'details': "{} \n\n💎 **السعر النهائي:** **{} {}**\n🆔 **كود الاشتراك:** `{}`"
     }
 }
 LANGS['en'] = {k: translate_text(v, 'en') for k, v in LANGS['ar'].items()}
@@ -270,7 +292,7 @@ def handle_admin_button(message):
 
 def open_admin_panel(chat_id):
     markup = InlineKeyboardMarkup(row_width=1).add(
-        InlineKeyboardButton("⚙️ تعديل أسعار الخدمات المحلية", callback_data="adm_edit_prices_menu"),
+        InlineKeyboardButton("⚙️ تعديل أسعار الاشتراكات محلياً", callback_data="adm_edit_prices_menu"),
         InlineKeyboardButton("🏷️ إنشاء وعرض خصم لخدمة (عبر AI)", callback_data="adm_create_offer"),
         InlineKeyboardButton("👥 المستخدمين والأرصدة الحالية", callback_data="adm_users_list"),
         InlineKeyboardButton("💼 فحص محفظة المتجر الأساسية (/wallet)", callback_data="adm_wallet"),
@@ -375,7 +397,7 @@ def finalize_offer_creation(message, service_id, new_price):
         old_price = CUSTOM_PRICES.get(str(service_id), 150)
         
         banner = ai_generate_offer_banner(s_name, old_price, new_price)
-        final_announcement = f"{banner}\n\n⏳ **ينتهي العرض خلال:** {hours} ساعات!\n🛒 متوفر الآن في قسم الخدمات."
+        final_announcement = f"{banner}\n\n⏳ **ينتهي العرض خلال:** {hours} ساعات!\n🛒 متوفر الآن في قسم الاشتراكات."
         
         db = load_db()
         for uid in db.keys():
@@ -600,7 +622,7 @@ def payment_webhook():
         return {"status": "error"}, 200
 
 # ==========================================
-# 7. الأقسام والخدمات (تصميم شبكي مزدوج row_width=2 مريح للعين مع صور AI)
+# 7. الأقسام والاشتراكات (تصميم شبكي مزدوج row_width=2 مع توليد الواجهات والصور عبر AI)
 # ==========================================
 @bot.message_handler(func=lambda msg: is_btn(msg, 'services'))
 def list_categories(message):
@@ -619,9 +641,9 @@ def list_categories(message):
         buttons = [InlineKeyboardButton(f"📁 {icon} {name}", callback_data=f"cat_{cid}") for cid, (name, icon) in categories.items()]
         markup.add(*buttons)
         
-        bot.send_message(message.chat.id, "🎨 **اختر القسم المناسب لتصفح الخدمات:**", reply_markup=markup, parse_mode="Markdown")
+        bot.send_message(message.chat.id, "🎨 **اختر فئة الاشتراكات المطلوبة:**", reply_markup=markup, parse_mode="Markdown")
     except:
-        bot.send_message(message.chat.id, "⚠️ تعذر جلب الخدمات من API الأساسي حالياً.")
+        bot.send_message(message.chat.id, "⚠️ تعذر جلب الاشتراكات من API الأساسي حالياً.")
 
 @bot.callback_query_handler(func=lambda call: call.data == 'back_to_cats')
 def back_to_categories(call):
@@ -639,7 +661,7 @@ def back_to_categories(call):
     buttons = [InlineKeyboardButton(f"📁 {icon} {name}", callback_data=f"cat_{cid}") for cid, (name, icon) in categories.items()]
     markup.add(*buttons)
     
-    bot.edit_message_text("🎨 **اختر القسم المناسب لتصفح الخدمات:**", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+    bot.edit_message_text("🎨 **اختر فئة الاشتراكات المطلوبة:**", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('cat_'))
 def show_services(call):
@@ -672,7 +694,7 @@ def show_services(call):
     markup.add(*service_buttons)
     markup.add(InlineKeyboardButton("🔙 رجوع للقائمة الرئيسية", callback_data="back_to_cats"))
     
-    bot.edit_message_text("✨ **الخدمات المتاحة داخل هذا القسم (اختر خدمتك المفضلة):**", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+    bot.edit_message_text("✨ **الاشتراكات المتاحة ضمن هذه الفئة:**", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('srv_'))
 def show_details(call):
@@ -697,12 +719,18 @@ def show_details(call):
             display_curr = "دولار"
 
         s_name = get_name(selected, lang)
-        text = LANGS[lang]['details'].format(s_name, get_desc(selected, lang), display_price, display_curr, service_id)
+        raw_desc = get_desc(selected, lang)
+        
+        # توليد واجهة الاشتراك عبر الذكاء الاصطناعي لتبدو فخمة ومريحة للعين
+        ai_styled_desc = ai_generate_subscription_interface(s_name, raw_desc)
+        text = LANGS[lang]['details'].format(ai_styled_desc, display_price, display_curr, service_id)
+        
         markup = InlineKeyboardMarkup(row_width=1).add(
             InlineKeyboardButton(LANGS[lang]['buy_btn'], callback_data=f"buy_{service_id}_{price_egp}"),
             InlineKeyboardButton(LANGS[lang]['back_btn'], callback_data=f"cat_{selected.get('category', {}).get('id', '')}")
         )
         
+        # جلب صورة الكالوجو الخاصة بالاشتراك عبر الـ AI
         img_url = get_ai_service_image(s_name)
         
         try:
@@ -742,7 +770,7 @@ def process_purchase(call):
                 order_details = api_data.get('data', api_data)
                 formatted_result = json.dumps(order_details, ensure_ascii=False, indent=2).replace('{', '').replace('}', '').replace('"', '')
                 
-                bot.send_message(user_id, f"🎉 **تم إتمام الطلب بنجاح عبر API الأساسي!**\n💰 خصم: {int(price_egp)} جنيه من رصيدك.\n\n📦 **تفاصيل التنفيذ:**\n`{formatted_result}`", parse_mode="Markdown")
+                bot.send_message(user_id, f"🎉 **تم إتمام الاشتراك بنجاح عبر API الأساسي!**\n💰 خصم: {int(price_egp)} جنيه من رصيدك.\n\n📦 **تفاصيل التنفيذ:**\n`{formatted_result}`", parse_mode="Markdown")
             else:
                 bot.send_message(user_id, "⚠️ عذراً، الخدمة غير متاحة حالياً من المزود، ولم يتم خصم أي مبلغ.")
         else:
