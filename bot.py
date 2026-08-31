@@ -20,9 +20,8 @@ BASE_URL = "https://xprostore.store/api/v1"
 ADMIN_ID = "1941469722"  # 👑 الـ ID الخاص بك
 ADMIN_USERNAME = "@emadabdelhailm" 
 
-PAYMENT_NUMBER = "01028835231"        # رقم فودافون كاش
+PAYMENT_NUMBER = "01028835231"        # رقم فودافون كاش وإنستا باي المُحدث
 ORANGE_NUMBER = "01285317443"        # رقم أورانج كاش
-USDT_ADDRESS = "TYourUSDTWalletAddressTRC20Here" 
 
 DOLLAR_PRICE_EGP = 50  
 FIXED_PROFIT_EGP = 100 
@@ -36,12 +35,11 @@ CUSTOM_PRICES = {
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
-# سجلات مؤقتة للعمليات المعلقة وأرشيف آخر الاستلامات للمقارنة الذكية
 active_pending_payments = {}
 recent_incoming_receipts = []
 
 # ==========================================
-# 2. قاعدة البيانات الآمنة (حماية الأرصدة)
+# 2. قاعدة البيانات الآمنة (إدارة المستخدمين والإحالات)
 # ==========================================
 DB_FILE = 'users_db.json'
 user_payment_data = {} 
@@ -57,13 +55,23 @@ def save_db(db):
         with open(DB_FILE, 'w', encoding='utf-8') as f: json.dump(db, f, indent=4, ensure_ascii=False)
     except: pass
 
-def get_user(user_id, username=None):
+def get_user(user_id, username=None, referrer_id=None):
     db = load_db()
     uid_str = str(user_id)
     clean_username = username.strip().replace('@', '') if username else ""
     
     if uid_str not in db: 
-        db[uid_str] = {'balance': 0.0, 'lang': 'ar', 'username': clean_username}
+        db[uid_str] = {'balance': 0.0, 'lang': 'ar', 'username': clean_username, 'referred_by': None}
+        
+        # نظام الإحالات: إذا دخل برابط شخص آخر ولم يكن هو نفسه
+        if referrer_id and str(referrer_id) != uid_str and str(referrer_id) in db:
+            db[uid_str]['referred_by'] = str(referrer_id)
+            # إضافة 5 جنيه لصاحب الدعوة
+            db[str(referrer_id)]['balance'] = round(db[str(referrer_id)].get('balance', 0.0) + 5.0, 2)
+            try:
+                bot.send_message(int(referrer_id), "🎁 **مبارك! انضم شخص عبر رابط إحالتك وتمت إضافة 5 جنيه إلى رصيدك.**", parse_mode="Markdown")
+            except: pass
+            
         save_db(db)
     else:
         if clean_username and db[uid_str].get('username') != clean_username:
@@ -91,7 +99,7 @@ def is_btn(msg, key):
     return any(msg.text == lang_dict.get(key) for lang_dict in LANGS.values())
 
 # ==========================================
-# 3. نظام الذكاء الاصطناعي لفحص جميع الرسائل ومقارنة الأرقام
+# 3. نظام الذكاء الاصطناعي للأيقونات وتحليل الدفع
 # ==========================================
 translation_cache = {}
 icon_cache = {}
@@ -175,7 +183,7 @@ LANGS = {
         'invalid_amount': "⚠️ يرجى إدخال مبلغ صحيح بين 5 و 1000 جنيه.",
         'choose_payment': "💳 **اختر طريقة الدفع للمبلغ ({} جنيه):**",
         'ask_phone': "📱 **أرسل رقم هاتفك الذي ستُحول منه (مثلاً: 01012345678):**",
-        'waiting_auto_pay': "⏳ **جارٍ انتظار وتحليل إشعار التحويل...**\n\nقم بالتحويل الآن بقيمة `{2} جنيه` إلى رقم **{0}** التالي:\n`{1}`\n\n📱 **رقم هاتفك المسجل:** `{3}`\n\n⚡ **ملاحظة:** الذكاء الاصطناعي يراجع جميع الرسائل واستلامات المحفظة أولاً بأول للمطابقة الفورية.",
+        'waiting_auto_pay': "⏳ **جارٍ انتظار وتحليل إشعار التحويل...**\n\nقم بالتحويل الآن بقيمة `{2} جنيه` عبر إنستا باي أو المحفظة إلى الرقم:\n`{1}`\n\n📱 **رقم هاتفك المسجل:** `{3}`\n\n⚡ **ملاحظة:** الذكاء الاصطناعي يراجع جميع الرسائل واستلامات المحفظة أولاً بأول للمطابقة الفورية.",
         'cancel': "إلغاء ❌", 'insufficient': "⚠️ رصيدك غير كافٍ!", 
         'buy_btn': "💳 شراء الآن", 'back_btn': "🔙 رجوع",
         'account_info': "👤 **معلومات حسابك:**\n\n🆔 رقم الحساب: `{}`\n💰 الرصيد الحالي: **{} جنيه مصري**",
@@ -207,7 +215,10 @@ def main_menu(user_id, lang='ar'):
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     try:
-        get_user(message.chat.id, message.from_user.username)
+        args = message.text.split()
+        referrer_id = args[1] if len(args) > 1 else None
+        
+        get_user(message.chat.id, message.from_user.username, referrer_id=referrer_id)
         lang = get_user(message.chat.id)['lang']
         bot.reply_to(message, LANGS[lang]['welcome'], reply_markup=main_menu(message.chat.id, lang))
     except Exception as e:
@@ -320,7 +331,7 @@ def check_provider_wallet_call(message):
         bot.send_message(message.chat.id, f"خطأ: {e}")
 
 # ==========================================
-# 6. الأزرار العامة والشحن
+# 6. الأزرار العامة والإحالات والشحن
 # ==========================================
 @bot.message_handler(func=lambda msg: is_btn(msg, 'language'))
 def choose_language(message):
@@ -340,7 +351,7 @@ def set_language(call):
     lang = get_user(call.message.chat.id)['lang']
     bot.send_message(call.message.chat.id, LANGS[new_lang]['lang_set'], reply_markup=main_menu(call.message.chat.id, lang))
 
-@bot.message_handler(func=lambda msg: is_btn(msg, 'account') or is_btn(msg, 'support') or is_btn(msg, 'orders'))
+@bot.message_handler(func=lambda msg: is_btn(msg, 'account') or is_btn(msg, 'support') or is_btn(msg, 'orders') or is_btn(msg, 'referral'))
 def basic_buttons(message):
     user = get_user(message.chat.id, message.from_user.username)
     lang = user['lang']
@@ -350,6 +361,11 @@ def basic_buttons(message):
         bot.send_message(message.chat.id, LANGS[lang]['support_info'].format(ADMIN_USERNAME), parse_mode="Markdown")
     elif is_btn(message, 'orders'):
         bot.send_message(message.chat.id, "📦 لا توجد طلبات سابقة.")
+    elif is_btn(message, 'referral'):
+        bot_info = bot.get_me()
+        ref_link = f"https://t.me/{bot_info.username}?start={message.chat.id}"
+        ref_text = f"🔗 **نظام الإحالات والأرباح:**\n\nقم بدعوة أصدقائك عبر رابط الإحالة الخاص بك واحصل على **5 جنيه** رصيد مجاني فوراً عن كل شخص يدخل من خلالك!\n\n📌 **رابط الإحالة الخاص بك:**\n`{ref_link}`"
+        bot.send_message(message.chat.id, ref_text, parse_mode="Markdown")
 
 @bot.message_handler(func=lambda msg: is_btn(msg, 'add_balance'))
 def ask_amount(message):
@@ -386,7 +402,7 @@ def wait_for_auto_payment(message):
     if not data: return
     sender_phone = message.text.strip()
     active_pending_payments[sender_phone] = {"user_id": user_id, "amount": data['amount']}
-    bot.send_message(user_id, f"⏳ جاري انتظار التحويل بقيمة `{data['amount']} جنيه` من الرقم `{sender_phone}`...", parse_mode="Markdown")
+    bot.send_message(user_id, f"⏳ جاري انتظار التحويل بقيمة `{data['amount']} جنيه` عبر إنستا باي أو المحفظة إلى الرقم `{PAYMENT_NUMBER}`...", parse_mode="Markdown")
 
 @app.route('/w/6oo6rETS2B4Ws1KG7oXl', methods=['POST', 'GET'])
 def payment_webhook():
@@ -394,18 +410,15 @@ def payment_webhook():
         incoming_data = request.json if request.is_json else (request.form if request.form else {})
         message_text = " ".join([str(v) for v in incoming_data.values() if v]) if isinstance(incoming_data, dict) else str(incoming_data)
         
-        # الذكاء الاصطناعي يحلل كل رسالة واردة ويستخرج البيانات بدقة
         ai_result = ai_analyze_payment_receipt(message_text)
         
         if ai_result.get('valid') == True:
             paid_amount = float(ai_result.get('amount', 0))
             sender_phone = str(ai_result.get('phone', ''))
             
-            # حفظ الرسالة في أرشيف آخر الاستلامات للمراجعة والمقارنة
             recent_incoming_receipts.append({"amount": paid_amount, "phone": sender_phone, "text": message_text})
             if len(recent_incoming_receipts) > 20: recent_incoming_receipts.pop(0)
 
-            # المقارنة الشاملة: فحص تطابق المبلغ ورقم الهاتف المسجل مع العمليات المعلقة
             target_user_id = None
             for p_phone, info in list(active_pending_payments.items()):
                 amount_matched = abs(info['amount'] - paid_amount) < 1.0
@@ -517,9 +530,6 @@ def process_purchase(call):
 def run_flask():
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)), debug=False, use_reloader=False)
 
-# ==========================================
-# تفعيل أزرار الأدمن الجديدة
-# ==========================================
 @bot.message_handler(commands=['admin'])
 def admin_command(message):
     if str(message.chat.id) != str(ADMIN_ID): return
