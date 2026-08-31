@@ -49,7 +49,7 @@ active_pending_payments = {}
 recent_incoming_receipts = []
 
 # ==========================================
-# 2. قاعدة البيانات الآمنة
+# 2. قاعدة البيانات الآمنة للأرصدة
 # ==========================================
 DB_FILE = 'users_db.json'
 user_payment_data = {} 
@@ -116,7 +116,7 @@ def is_btn(msg, key):
     return any(msg.text == lang_dict.get(key) for lang_dict in LANGS.values())
 
 # ==========================================
-# 3. محرك الذكاء الاصطناعي (Gemini API) لتوليد الصور والواجهات
+# 3. محرك الذكاء الاصطناعي وصور الاشتراكات (Catalog)
 # ==========================================
 def get_service_icon(name):
     n = name.lower()
@@ -130,44 +130,30 @@ def get_service_icon(name):
     if any(x in n for x in ['vpn', 'ترجام', 'proxy']): return '🔒'
     return '💎'
 
+def get_ai_service_image(service_name):
+    n = service_name.lower()
+    if 'netflix' in n: return "https://images.unsplash.com/photo-1574375927938-d5a98e8ffe85?q=80&w=800&auto=format&fit=crop"
+    if 'chatgpt' in n or 'gpt' in n or 'openai' in n: return "https://images.unsplash.com/photo-1677442136019-21780efad99a?q=80&w=800&auto=format&fit=crop"
+    if 'gemini' in n or 'جيميناي' in n: return "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?q=80&w=800&auto=format&fit=crop"
+    if 'canva' in n or 'تصميم' in n: return "https://images.unsplash.com/photo-1626785774573-4b799315345d?q=80&w=800&auto=format&fit=crop"
+    if 'shahid' in n or 'شاهد' in n: return "https://images.unsplash.com/photo-1593784991095-a205069470b6?q=80&w=800&auto=format&fit=crop"
+    if 'vpn' in n: return "https://images.unsplash.com/photo-1563986768609-322da13575f3?q=80&w=800&auto=format&fit=crop"
+    return "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=800&auto=format&fit=crop"
+
 def ai_generate_subscription_interface(service_name, raw_desc):
     if not GEMINI_API_KEY:
         return f"🎯 **اشتراك مميز:** {service_name}\n\n📝 **التفاصيل:**\n{raw_desc}"
     try:
-        prompt = f"Rewrite and design a professional, highly attractive subscription interface in Arabic for the service '{service_name}' with rich emojis, clear benefits, and organized sections. Original description: {raw_desc}"
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
-        headers = {'Content-Type': 'application/json'}
-        payload = {"contents": [{"parts": [{"text": prompt}]}]}
-        response = requests.post(url, headers=headers, json=payload, timeout=8)
-        if response.status_code == 200:
-            return response.json()['candidates'][0]['content']['parts'][0]['text']
-    except:
-        pass
-    return f"🎯 **اشتراك مميز:** {service_name}\n\n📝 **التفاصيل:**\n{raw_desc}"
-
-def get_ai_service_image(service_name):
-    if not GEMINI_API_KEY:
-        return "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=800&auto=format&fit=crop"
-    try:
-        prompt = f"Provide a direct high-quality Unsplash image URL (only the URL, nothing else) that visually represents the digital subscription service '{service_name}' like Netflix, ChatGPT, Canva, or streaming."
+        prompt = f"Design a clean, highly attractive subscription interface in Arabic for '{service_name}' with rich emojis and organized sections. Original description: {raw_desc}"
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
         headers = {'Content-Type': 'application/json'}
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
         response = requests.post(url, headers=headers, json=payload, timeout=6)
         if response.status_code == 200:
-            ai_text = response.json()['candidates'][0]['content']['parts'][0]['text'].strip()
-            url_match = re.search(r'(https?://[^\s]+)', ai_text)
-            if url_match:
-                return url_match.group(1)
+            return response.json()['candidates'][0]['content']['parts'][0]['text']
     except:
         pass
-    
-    # صور احتياطية ذكية حسب الاسم
-    n = service_name.lower()
-    if 'netflix' in n: return "https://images.unsplash.com/photo-1574375927938-d5a98e8ffe85?q=80&w=800&auto=format&fit=crop"
-    if 'gpt' in n or 'openai' in n: return "https://images.unsplash.com/photo-1677442136019-21780efad99a?q=80&w=800&auto=format&fit=crop"
-    if 'gemini' in n: return "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?q=80&w=800&auto=format&fit=crop"
-    return "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=800&auto=format&fit=crop"
+    return f"🎯 **اشتراك مميز:** {service_name}\n\n📝 **التفاصيل:**\n{raw_desc}"
 
 translation_cache = {}
 
@@ -187,11 +173,11 @@ def ai_generate_offer_banner(service_name, old_price, new_price):
     if not GEMINI_API_KEY:
         return f"🔥 **عرض خاص لفترة محدودة!**\n\n🎯 الخدمة: {service_name}\n❌ السعر القديم: {old_price} جنيه\n💎 السعر الحالي: **{new_price} جنيه**"
     try:
-        prompt = f"Design an attractive promotional banner in Arabic for '{service_name}'. Old price: {old_price} EGP, New promo price: {new_price} EGP."
+        prompt = f"Design a promotional banner in Arabic for '{service_name}'. Old price: {old_price} EGP, New promo price: {new_price} EGP."
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
         headers = {'Content-Type': 'application/json'}
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
-        response = requests.post(url, headers=headers, json=payload, timeout=8)
+        response = requests.post(url, headers=headers, json=payload, timeout=6)
         if response.status_code == 200:
             return response.json()['candidates'][0]['content']['parts'][0]['text']
     except:
@@ -209,7 +195,7 @@ def ai_analyze_payment_receipt(message_text):
         return {"valid": extracted_amount > 0, "amount": extracted_amount, "phone": extracted_phone}
 
     try:
-        prompt = f"Analyze this incoming message text. Extract strictly a JSON object with keys: valid (true/false), amount (float number), phone (string phone number). Text: {message_text}"
+        prompt = f"Analyze this text. Extract strictly a JSON object with keys: valid (true/false), amount (float number), phone (string). Text: {message_text}"
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
         headers = {'Content-Type': 'application/json'}
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
@@ -233,7 +219,7 @@ def get_desc(item, lang):
     return desc if lang == 'ar' else (item.get('description_en') or translate_text(desc, lang))
 
 # ==========================================
-# 4. واجهة البوت واللغات
+# 4. قاموس الواجهة
 # ==========================================
 LANGS = {
     'ar': {
@@ -622,7 +608,7 @@ def payment_webhook():
         return {"status": "error"}, 200
 
 # ==========================================
-# 7. الأقسام والاشتراكات (تصميم شبكي مزدوج row_width=2 مع توليد الواجهات والصور عبر AI)
+# 7. الأقسام والاشتراكات (تصميم شبكي مزدوج row_width=2)
 # ==========================================
 @bot.message_handler(func=lambda msg: is_btn(msg, 'services'))
 def list_categories(message):
@@ -721,7 +707,6 @@ def show_details(call):
         s_name = get_name(selected, lang)
         raw_desc = get_desc(selected, lang)
         
-        # توليد واجهة الاشتراك عبر الذكاء الاصطناعي لتبدو فخمة ومريحة للعين
         ai_styled_desc = ai_generate_subscription_interface(s_name, raw_desc)
         text = LANGS[lang]['details'].format(ai_styled_desc, display_price, display_curr, service_id)
         
@@ -730,7 +715,6 @@ def show_details(call):
             InlineKeyboardButton(LANGS[lang]['back_btn'], callback_data=f"cat_{selected.get('category', {}).get('id', '')}")
         )
         
-        # جلب صورة الكالوجو الخاصة بالاشتراك عبر الـ AI
         img_url = get_ai_service_image(s_name)
         
         try:
