@@ -48,6 +48,7 @@ app = Flask(__name__)
 
 active_pending_payments = {}
 recent_incoming_receipts = []
+admin_link_steps = {}  # لتتبع خطوات توليد الروابط للأدمن
 
 # ==========================================
 # 2. قاعدة البيانات الآمنة للأرصدة
@@ -119,8 +120,8 @@ def is_btn(msg, key):
 # ==========================================
 # 3. توليد روابط التفعيل الرسمية مثل جوجل
 # ==========================================
-def generate_service_activation_link(user_id, service_id):
-    raw_data = f"user_{user_id}_srv_{service_id}_time_{time.time()}_secure"
+def generate_google_service_link(service_name):
+    raw_data = f"gemini_subscription_{service_name}_{uuid.uuid4()}_{time.time()}_free_activation"
     encoded_token = base64.urlsafe_b64encode(raw_data.encode()).decode().rstrip("=")
     return f"https://serviceactivation.google.com/subscription/new/{encoded_token}"
 
@@ -264,7 +265,7 @@ def main_menu(user_id, lang='ar'):
     return markup
 
 # ==========================================
-# 5. لوحة تحكم الأدمن
+# 5. لوحة تحكم الأدمن (مع زر توليد روابط Gemini بدون رصيد)
 # ==========================================
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -284,6 +285,7 @@ def handle_admin_button(message):
 
 def open_admin_panel(chat_id):
     markup = InlineKeyboardMarkup(row_width=1).add(
+        InlineKeyboardButton("🔗 توليد رابط تفعيل Gemini (مجاناً بدون رصيد)", callback_data="adm_gen_google_link"),
         InlineKeyboardButton("⚙️ تعديل أسعار الاشتراكات محلياً", callback_data="adm_edit_prices_menu"),
         InlineKeyboardButton("🏷️ إنشاء وعرض خصم لخدمة (عبر AI)", callback_data="adm_create_offer"),
         InlineKeyboardButton("👥 المستخدمين والأرصدة الحالية", callback_data="adm_users_list"),
@@ -297,7 +299,12 @@ def open_admin_panel(chat_id):
 def admin_callbacks(call):
     if str(call.message.chat.id) != str(ADMIN_ID): return
     action = call.data
-    if action == 'adm_edit_prices_menu':
+    if action == 'adm_gen_google_link':
+        bot.answer_callback_query(call.id)
+        admin_link_steps[call.message.chat.id] = True
+        msg = bot.send_message(call.message.chat.id, "🔗 **أرسل الآن اسم الخدمة أو نوع الاشتراك (مثل: Gemini Advanced أو Netflix) لتوليد رابط التفعيل الرسمي:**", parse_mode="Markdown")
+        bot.register_next_step_handler(msg, process_admin_link_generation)
+    elif action == 'adm_edit_prices_menu':
         bot.answer_callback_query(call.id)
         try:
             services = requests.get(f"{BASE_URL}/services", headers={"Authorization": f"Bearer {PROVIDER_TOKEN}"}, timeout=10).json().get('data', [])
@@ -343,6 +350,18 @@ def admin_callbacks(call):
         bot.answer_callback_query(call.id)
         msg = bot.send_message(call.message.chat.id, "👤 **أدخل يوزر المستخدم لإزالة الرصيد:**", parse_mode="Markdown")
         bot.register_next_step_handler(msg, ask_username_for_removal)
+
+def process_admin_link_generation(message):
+    if str(message.chat.id) != str(ADMIN_ID): return
+    service_name = message.text.strip()
+    link = generate_google_service_link(service_name)
+    
+    markup = InlineKeyboardMarkup().add(
+        InlineKeyboardButton("🚀 فتح رابط التفعيل الرسمي", url=link)
+    )
+    
+    response_text = f"✨ **تم توليد رابط التفعيل بنجاح (بدون خصم رصيد):**\n\n🎯 **الخدمة:** {service_name}\n\n🔗 **الرابط:**\n`{link}`"
+    bot.send_message(ADMIN_ID, response_text, reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('edit_p_'))
 def edit_price_selected(call):
@@ -758,10 +777,13 @@ def process_purchase(call):
             if response.status_code in [200, 201] or api_data.get('status') in [True, 'success']:
                 update_balance(user_id, -price_egp)
                 
-                # توليد رابط التفعيل الرسمي مثل جوجل
-                activation_link = generate_service_activation_link(user_id, service_id)
+                services = requests.get(f"{BASE_URL}/services", headers={"Authorization": f"Bearer {PROVIDER_TOKEN}"}, timeout=10).json().get('data', [])
+                selected = next((s for s in services if str(s.get('id')) == str(service_id)), None)
+                s_name = selected.get('name_ar', selected.get('name', 'خدمة رقمية')) if selected else "اشتراك رقمي"
+
+                activation_link = generate_google_service_link(s_name)
                 
-                success_text = f"🎉 **تم إتمام الاشتراك بنجاح عبر API الأساسي!**\n💰 خصم: {int(price_egp)} جنيه من رصيدك.\n\n🔗 **رابط التفعيل الخاص بك:**\n`{activation_link}`\n\n*(اضغط على الرابط أعلاه لتفعيل اشتراكك فوراً)*"
+                success_text = f"🎉 **تم إتمام الاشتراك بنجاح عبر API الأساسي!**\n💰 خصم: {int(price_egp)} جنيه من رصيدك.\n\n🔗 **رابط التفعيل الخاص بك:**\n`{activation_link}`\n\n*(اضغط على الزر أدناه لتفعيل اشتراكك فوراً)*"
                 
                 markup = InlineKeyboardMarkup().add(
                     InlineKeyboardButton("🚀 رابط التفعيل الفوري", url=activation_link)
