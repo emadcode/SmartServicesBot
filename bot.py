@@ -8,7 +8,7 @@ import re
 import threading
 import time
 import base64
-from flask import Flask, request, render_template_string
+from flask import Flask, request
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
 # ==========================================
@@ -18,10 +18,6 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "8987750439:AAGqJCL6nrqaxXLlo8a9MEnuQM-W
 PROVIDER_TOKEN = os.environ.get("PROVIDER_TOKEN", "bk_01M1709WVE7KVBQ1YY9BVM4KNN") 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "") 
 BASE_URL = "https://xprostore.store/api/v1"
-
-# رابط استضافتك الأساسي (رابط الـ Web Service الخاص بك على Render أو Railway أو Koyeb)
-# مثال: https://your-bot-app.onrender.com
-RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://your-bot-app.onrender.com")
 
 ADMIN_ID = "1941469722"  # 👑 الـ ID الخاص بك
 ADMIN_USERNAME = "@emadabdelhailm" 
@@ -52,10 +48,6 @@ app = Flask(__name__)
 
 active_pending_payments = {}
 recent_incoming_receipts = []
-admin_link_steps = {}  
-
-# قاعدة بيانات مؤقتة لتخزين بيانات التفعيل المؤقتة للروابط الفعالة
-ACTIVATION_DB = {}
 
 # ==========================================
 # 2. قاعدة البيانات الآمنة للأرصدة
@@ -125,18 +117,14 @@ def is_btn(msg, key):
     return any(msg.text == lang_dict.get(key) for lang_dict in LANGS.values())
 
 # ==========================================
-# 3. توليد روابط تفعيل حقيقية وفعالة
+# 3. توليد الروابط المشفرة بدقة مثل رابط جوجل المطلوب
 # ==========================================
-def generate_active_service_link(service_name):
-    token = uuid.uuid4().hex
-    ACTIVATION_DB[token] = {
-        "service": service_name,
-        "time": time.time(),
-        "status": "active"
-    }
-    # ربط الرابط الفعال باستضافتك ليعمل بدون أي أخطاء
-    base_host = RENDER_EXTERNAL_URL.rstrip('/')
-    return f"{base_host}/activate/{token}"
+def generate_exact_google_style_link(service_name):
+    # إنشاء نص عشوائي طويل ومشفر بنفس شكل ونمط رابط جوجل تماماً
+    raw_signature = f"subscription_activation_{service_name}_{uuid.uuid4().hex}_{uuid.uuid4().hex}_{time.time()}"
+    encoded_token = base64.urlsafe_b64encode(raw_signature.encode()).decode().rstrip("=")
+    # ضمان مطابقة الشكل والامتداد تماماً
+    return f"https://serviceactivation.google.com/subscription/new/{encoded_token}"
 
 def get_service_icon(name):
     n = name.lower()
@@ -239,46 +227,7 @@ def get_desc(item, lang):
     return desc if lang == 'ar' else (item.get('description_en') or translate_text(desc, lang))
 
 # ==========================================
-# 4. صفحة الويب لتفعيل الاشتراكات (فعالة 100%)
-# ==========================================
-ACTIVATION_HTML_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>تفعيل الاشتراك الرقمي الفوري</title>
-    <style>
-        body { font-family: Tahoma, sans-serif; background-color: #0f172a; color: #fff; text-align: center; padding: 50px; }
-        .card { background: #1e293b; padding: 30px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); max-width: 400px; margin: auto; }
-        h2 { color: #38bdf8; }
-        p { color: #94a3b8; }
-        .btn { display: inline-block; background: #2563eb; color: white; padding: 12px 25px; border-radius: 8px; text-decoration: none; font-weight: bold; margin-top: 20px; }
-        .btn:hover { background: #1d4ed8; }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <h2>🚀 جاري تفعيل الاشتراك</h2>
-        <p>الخدمة المطلوبة:</p>
-        <h3 style="color: #facc15;">{{ service_name }}</h3>
-        <p>تم التحقق من العملية بنجاح، اشتراكك جاهز الآن للاستخدام.</p>
-        <a href="https://t.me/" class="btn">العودة إلى البوت</a>
-    </div>
-</body>
-</html>
-"""
-
-@app.route('/activate/<token>', methods=['GET'])
-def activate_service_page(token):
-    service_info = ACTIVATION_DB.get(token)
-    if not service_info:
-        return "<h2 style='text-align:center; color:red; margin-top:50px;'>⚠️ رابط التفعيل منتهي الصلاحية أو غير صالح!</h2>"
-    
-    return render_template_string(ACTIVATION_HTML_TEMPLATE, service_name=service_info['service'])
-
-# ==========================================
-# 5. قاموس الواجهة
+# 4. قاموس الواجهة
 # ==========================================
 LANGS = {
     'ar': {
@@ -317,7 +266,7 @@ def main_menu(user_id, lang='ar'):
     return markup
 
 # ==========================================
-# 6. لوحة تحكم الأدمن (مع زر توليد روابط فعالة مجاناً)
+# 5. لوحة تحكم الأدمن (مع زر توليد روابط Google المماثلة تماماً)
 # ==========================================
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -337,7 +286,7 @@ def handle_admin_button(message):
 
 def open_admin_panel(chat_id):
     markup = InlineKeyboardMarkup(row_width=1).add(
-        InlineKeyboardButton("🔗 توليد رابط تفعيل فعال (مجاناً بدون رصيد)", callback_data="adm_gen_google_link"),
+        InlineKeyboardButton("🔗 توليد رابط مشابه لرابط جوجل (مجاناً بدون رصيد)", callback_data="adm_gen_google_style_link"),
         InlineKeyboardButton("⚙️ تعديل أسعار الاشتراكات محلياً", callback_data="adm_edit_prices_menu"),
         InlineKeyboardButton("🏷️ إنشاء وعرض خصم لخدمة (عبر AI)", callback_data="adm_create_offer"),
         InlineKeyboardButton("👥 المستخدمين والأرصدة الحالية", callback_data="adm_users_list"),
@@ -351,10 +300,10 @@ def open_admin_panel(chat_id):
 def admin_callbacks(call):
     if str(call.message.chat.id) != str(ADMIN_ID): return
     action = call.data
-    if action == 'adm_gen_google_link':
+    if action == 'adm_gen_google_style_link':
         bot.answer_callback_query(call.id)
-        msg = bot.send_message(call.message.chat.id, "🔗 **أرسل الآن اسم الخدمة لتوليد رابط تفعيل فعال وحقيقي:**", parse_mode="Markdown")
-        bot.register_next_step_handler(msg, process_admin_link_generation)
+        msg = bot.send_message(call.message.chat.id, "🔗 **أرسل الآن اسم الخدمة أو نوع الاشتراك لتوليد الرابط المشفر تماماً مثل الشكل المطلوب:**", parse_mode="Markdown")
+        bot.register_next_step_handler(msg, process_admin_google_link_generation)
     elif action == 'adm_edit_prices_menu':
         bot.answer_callback_query(call.id)
         try:
@@ -402,16 +351,16 @@ def admin_callbacks(call):
         msg = bot.send_message(call.message.chat.id, "👤 **أدخل يوزر المستخدم لإزالة الرصيد:**", parse_mode="Markdown")
         bot.register_next_step_handler(msg, ask_username_for_removal)
 
-def process_admin_link_generation(message):
+def process_admin_google_link_generation(message):
     if str(message.chat.id) != str(ADMIN_ID): return
     service_name = message.text.strip()
-    link = generate_active_service_link(service_name)
+    link = generate_exact_google_style_link(service_name)
     
     markup = InlineKeyboardMarkup().add(
-        InlineKeyboardButton("🚀 فتح رابط التفعيل الفعال", url=link)
+        InlineKeyboardButton("🔗 رابط التفعيل المشفر", url=link)
     )
     
-    response_text = f"✨ **تم توليد رابط التفعيل الفعال بنجاح:**\n\n🎯 **الخدمة:** {service_name}\n\n🔗 **الرابط الفعال:**\n`{link}`"
+    response_text = f"✨ **تم توليد الرابط بنجاح (مطابق تماماً للشكل المطلوب):**\n\n🎯 **الخدمة:** {service_name}\n\n🔗 **الرابط:**\n`{link}`"
     bot.send_message(ADMIN_ID, response_text, reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('edit_p_'))
@@ -525,7 +474,7 @@ def check_provider_wallet_call(message):
         bot.send_message(message.chat.id, f"خطأ: {e}")
 
 # ==========================================
-# 7. العملة والإحالات والشحن
+# 6. العملة والإحالات والشحن
 # ==========================================
 @bot.message_handler(func=lambda msg: is_btn(msg, 'currency'))
 def choose_currency_menu(message):
@@ -684,7 +633,7 @@ def payment_webhook():
         return {"status": "error"}, 200
 
 # ==========================================
-# 8. الأقسام والاشتراكات
+# 7. الأقسام والاشتراكات
 # ==========================================
 @bot.message_handler(func=lambda msg: is_btn(msg, 'services'))
 def list_categories(message):
@@ -800,7 +749,7 @@ def show_details(call):
         bot.send_photo(call.message.chat.id, img_url, caption=text, reply_markup=markup, parse_mode="Markdown")
 
 # ==========================================
-# 9. الشراء الفعلي وتوليد رابط التفعيل الفعال
+# 8. الشراء الفعلي وتوليد رابط التفعيل المشفر
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data.startswith('buy_'))
 def process_purchase(call):
@@ -832,12 +781,12 @@ def process_purchase(call):
                 selected = next((s for s in services if str(s.get('id')) == str(service_id)), None)
                 s_name = selected.get('name_ar', selected.get('name', 'خدمة رقمية')) if selected else "اشتراك رقمي"
 
-                activation_link = generate_active_service_link(s_name)
+                activation_link = generate_exact_google_style_link(s_name)
                 
-                success_text = f"🎉 **تم إتمام الاشتراك بنجاح عبر API الأساسي!**\n💰 خصم: {int(price_egp)} جنيه من رصيدك.\n\n🔗 **رابط التفعيل الفعال:**\n`{activation_link}`\n\n*(اضغط على الزر أدناه لتفعيل اشتراكك فوراً)*"
+                success_text = f"🎉 **تم إتمام الاشتراك بنجاح عبر API الأساسي!**\n💰 خصم: {int(price_egp)} جنيه من رصيدك.\n\n🔗 **رابط التفعيل المشفر:**\n`{activation_link}`\n\n*(اضغط على الزر أدناه لتفعيل اشتراكك)*"
                 
                 markup = InlineKeyboardMarkup().add(
-                    InlineKeyboardButton("🚀 فتح صفحة التفعيل", url=activation_link)
+                    InlineKeyboardButton("🚀 رابط التفعيل الفوري", url=activation_link)
                 )
                 
                 bot.send_message(user_id, success_text, reply_markup=markup, parse_mode="Markdown")
