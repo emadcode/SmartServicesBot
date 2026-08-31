@@ -37,10 +37,9 @@ app = Flask(__name__)
 
 active_pending_payments = {}
 recent_incoming_receipts = []
-user_cv_steps = {}  # لتخزين خطوات بناء الـ ATS CV للمستخدمين
 
 # ==========================================
-# 2. قاعدة البيانات الآمنة (محمية ضد الحذف عند التحديث)
+# 2. قاعدة البيانات الآمنة (محمية ضد الحذف)
 # ==========================================
 DB_FILE = 'users_db.json'
 user_payment_data = {} 
@@ -56,21 +55,24 @@ def save_db(db):
         with open(DB_FILE, 'w', encoding='utf-8') as f: json.dump(db, f, indent=4, ensure_ascii=False)
     except: pass
 
-def get_user(user_id, username=None, referrer_id=None):
+def get_user(user_id, username=None, ref_username=None):
     db = load_db()
     uid_str = str(user_id)
-    clean_username = username.strip().replace('@', '') if username else ""
+    clean_username = username.strip().replace('@', '').lower() if username else ""
     
     if uid_str not in db: 
         db[uid_str] = {'balance': 0.0, 'lang': 'ar', 'currency': 'EGP', 'username': clean_username, 'referred_by': None}
         
-        if referrer_id and str(referrer_id) != uid_str and str(referrer_id) in db:
-            db[uid_str]['referred_by'] = str(referrer_id)
-            db[str(referrer_id)]['balance'] = round(db[str(referrer_id)].get('balance', 0.0) + 5.0, 2)
-            try:
-                bot.send_message(int(referrer_id), "🎁 **مبارك! انضم شخص عبر رابط إحالتك وتمت إضافة 5 جنيه إلى رصيدك.**", parse_mode="Markdown")
-            except: pass
-            
+        # نظام الإحالات باليوزر
+        if ref_username and ref_username.lower() != clean_username:
+            ref_uid = next((u for u, info in db.items() if info.get('username', '').lower() == ref_username.lower()), None)
+            if ref_uid:
+                db[uid_str]['referred_by'] = ref_uid
+                db[ref_uid]['balance'] = round(db[ref_uid].get('balance', 0.0) + 5.0, 2)
+                try:
+                    bot.send_message(int(ref_uid), "🎁 **مبارك! انضم شخص عبر رابط إحالتك وتمت إضافة 5 جنيه إلى رصيدك.**", parse_mode="Markdown")
+                except: pass
+                
         save_db(db)
     else:
         if clean_username and db[uid_str].get('username') != clean_username:
@@ -107,28 +109,24 @@ def is_btn(msg, key):
     return any(msg.text == lang_dict.get(key) for lang_dict in LANGS.values())
 
 # ==========================================
-# 3. نظام الذكاء الاصطناعي الشامل والمراجع الذكي
+# 3. نظام الأيقونات الاحترافية (نتفلكس، شاهد، إلخ)
 # ==========================================
-translation_cache = {}
 icon_cache = {}
 
-def get_ai_icon(name):
+def get_service_icon(name):
+    n = name.lower()
+    if any(x in n for x in ['netflix', 'نتفلكس']): return '🍿🍿'
+    if any(x in n for x in ['shahid', 'شاهد']): return '📺'
+    if any(x in n for x in ['gpt', 'chatgpt', 'openai']): return '🤖'
+    if any(x in n for x in ['gemini', 'جيميناي', 'ai']): return '✨'
+    if any(x in n for x in ['canva', 'كانفا']): return '🎨'
+    if any(x in n for x in ['spotify', 'أنغامي', 'music']): return '🎵'
+    if any(x in n for x in ['pubg', 'ببجي', 'game']): return '🎮'
+    if any(x in n for x in ['vpn', 'ترجام', 'proxy']): return '🔒'
     if name in icon_cache: return icon_cache[name]
-    if not GEMINI_API_KEY: return '🛒'
-    try:
-        prompt = f"Return only ONE matching emoji icon for this service name: '{name}'. No text, just emoji."
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
-        headers = {'Content-Type': 'application/json'}
-        payload = {"contents": [{"parts": [{"text": prompt}]}]}
-        response = requests.post(url, headers=headers, json=payload, timeout=3)
-        if response.status_code == 200:
-            emoji = response.json()['candidates'][0]['content']['parts'][0]['text'].strip()
-            if len(emoji) <= 4:
-                icon_cache[name] = emoji
-                return emoji
-    except:
-        pass
     return '⚡'
+
+translation_cache = {}
 
 def translate_text(text, target_lang):
     if not text or target_lang == 'ar': return text
@@ -168,21 +166,6 @@ def ai_analyze_payment_receipt(message_text):
         pass
     return {"valid": extracted_amount > 0, "amount": extracted_amount, "phone": extracted_phone}
 
-def ai_generate_ats_cv(cv_data):
-    if not GEMINI_API_KEY:
-        return "⚠️ مفتاح الذكاء الاصطناعي غير متوفر حالياً لتوليد السيرة الذاتية."
-    try:
-        prompt = f"Create a professional, ATS-compliant CV in English or Arabic based on this user data: {cv_data}. Optimize it with strong bullet points, clean formatting, and keyword optimization."
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
-        headers = {'Content-Type': 'application/json'}
-        payload = {"contents": [{"parts": [{"text": prompt}]}]}
-        response = requests.post(url, headers=headers, json=payload, timeout=15)
-        if response.status_code == 200:
-            return response.json()['candidates'][0]['content']['parts'][0]['text']
-    except:
-        pass
-    return "⚠️ حدث خطأ أثناء صياغة السيرة الذاتية عبر الذكاء الاصطناعي."
-
 def get_name(item, lang):
     name = item.get('name_ar', item.get('name', 'خدمة'))
     return name if lang == 'ar' else (item.get('name_en') or translate_text(name, lang))
@@ -192,12 +175,12 @@ def get_desc(item, lang):
     return desc if lang == 'ar' else (item.get('description_en') or translate_text(desc, lang))
 
 # ==========================================
-# 4. قاموس واجهة البوت واللغات
+# 4. واجهة البوت واللغات
 # ==========================================
 LANGS = {
     'ar': {
         'welcome': "🌟 **مرحباً بك في متجرنا الرقمي الذكي!**\n\n🤖 استمتع بخدماتنا السريعة والآمنة 100%.\n\n👇 استخدم القائمة أدناه للتنقل:",
-        'keys': "مفاتيح API 🔑", 'orders': "طلباتي 📦", 'services': "الخدمات والـ ATS 🛍️",
+        'keys': "مفاتيح API 🔑", 'orders': "طلباتي 📦", 'services': "الخدمات الرقمية 🛍️",
         'support': "الدعم الفني 💬", 'account': "حسابي 👤", 'language': "اللغة 🌐",
         'currency': "العملة 💱", 'referral': "الإحالات والأرباح 🎁", 'add_balance': "شحن الرصيد 💳",
         'admin_panel_btn': "👑 لوحة التحكم",
@@ -207,7 +190,7 @@ LANGS = {
         'choose_payment': "💳 **اختر وسيلة الدفع للمبلغ ({0} جنيه):**",
         'ask_phone': "📱 **أرسل رقم هاتفك الذي قمت بالتحويل منه (مثلاً: 01012345678):**",
         'waiting_auto_pay': "⏳ **جاري انتظار وتأكيد التحويل...**\n\nقم بالتحويل الآن بقيمة `{2} جنيه` إلى الرقم الأزرق التالي:\n👉 **[01028835231](tel:01028835231)**\n\n📱 *رقم هاتفك المسجل:* `{3}`\n⏱️ *ملاحظة:* العملية صالحة لمدة **5 دقائق فقط** وسيتم شحن رصيدك تلقائياً.",
-        'cancel': "❌ تم الإلغاء.", 'insufficient': "⚠️ رصيدك الحالي غير كافٍ!", 
+        'cancel': "❌ تم الإلغاء.", 'insufficient': "⚠️ **رصيدك الحالي غير كافٍ لإتمام عملية الشراء!**\n\n💰 السعر المطلوب: `{0} جنيه`\n💳 رصيدك الحالي: `{1} جنيه`\n\nيرجى شحن رصيدك بقيمة العرض أو الفرق لإتمام الطلب.", 
         'buy_btn': "💳 شراء الآن", 'back_btn': "🔙 رجوع",
         'account_info': "👤 **معلومات حسابك:**\n\n🆔 رقم الحساب: `{}`\n💰 الرصيد المتاح: **{} {}**",
         'support_info': "💬 **للتواصل مع الدعم الفني:**\n\nالمسؤول: {}",
@@ -217,8 +200,6 @@ LANGS = {
 }
 LANGS['en'] = {k: translate_text(v, 'en') for k, v in LANGS['ar'].items()}
 LANGS['ru'] = {k: translate_text(v, 'ru') for k, v in LANGS['ar'].items()}
-LANGS['en'].update({'keys': "API Keys 🔑", 'orders': "Orders 📦", 'services': "Services & ATS 🛍️", 'support': "Support 💬", 'account': "Account 👤", 'language': "Language 🌐", 'currency': "Currency 💱", 'referral': "Referrals 🎁", 'add_balance': "Add Balance 💳", 'admin_panel_btn': "👑 Admin Panel", 'cancel': "Cancel ❌", 'buy_btn': "💳 Buy Now", 'back_btn': "🔙 Back"})
-LANGS['ru'].update({'keys': "API 🔑", 'orders': "Заказы 📦", 'services': "Услуги и ATS 🛍️", 'support': "Поддержка 💬", 'account': "Аккаунт 👤", 'language': "Язык 🌐", 'currency': "Валюта 💱", 'referral': "Рефералы 🎁", 'add_balance': "Пополнить 💳", 'admin_panel_btn': "👑 Админ-панель", 'cancel': "Отмена ❌", 'buy_btn': "💳 Купить", 'back_btn': "🔙 Назад"})
 
 def main_menu(user_id, lang='ar'):
     l = LANGS.get(lang, LANGS['ar'])
@@ -233,14 +214,14 @@ def main_menu(user_id, lang='ar'):
     return markup
 
 # ==========================================
-# 5. الأوامر الأساسية ولوحة التحكم للإدارة
+# 5. لوحة تحكم الأدمن (صنع العروض والإشعارات)
 # ==========================================
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     try:
         args = message.text.split()
-        referrer_id = args[1] if len(args) > 1 else None
-        get_user(message.chat.id, message.from_user.username, referrer_id=referrer_id)
+        ref_username = args[1] if len(args) > 1 else None
+        get_user(message.chat.id, message.from_user.username, ref_username=ref_username)
         lang = get_user(message.chat.id)['lang']
         bot.reply_to(message, LANGS[lang]['welcome'], reply_markup=main_menu(message.chat.id, lang), parse_mode="Markdown")
     except Exception as e:
@@ -253,6 +234,7 @@ def handle_admin_button(message):
 
 def open_admin_panel(chat_id):
     markup = InlineKeyboardMarkup(row_width=1).add(
+        InlineKeyboardButton("📢 إنشاء وعمل عرض جديد (إرسال للجميع)", callback_data="adm_broadcast_offer"),
         InlineKeyboardButton("👥 المستخدمين والأرصدة الحالية", callback_data="adm_users_list"),
         InlineKeyboardButton("📋 قائمة الخدمات (/prices)", callback_data="adm_prices"),
         InlineKeyboardButton("💼 فحص محفظة المتجر (/wallet)", callback_data="adm_wallet"),
@@ -265,7 +247,11 @@ def open_admin_panel(chat_id):
 def admin_callbacks(call):
     if str(call.message.chat.id) != str(ADMIN_ID): return
     action = call.data
-    if action == 'adm_users_list':
+    if action == 'adm_broadcast_offer':
+        bot.answer_callback_query(call.id)
+        msg = bot.send_message(call.message.chat.id, "📢 **أرسل الآن نص العرض أو الإعلان الذي تريد إرساله لكافة مستخدمي البوت:**", parse_mode="Markdown")
+        bot.register_next_step_handler(msg, execute_broadcast_offer)
+    elif action == 'adm_users_list':
         bot.answer_callback_query(call.id)
         db = load_db()
         text = "👥 **قائمة المستخدمين والأرصدة الحالية:**\n\n"
@@ -289,6 +275,18 @@ def admin_callbacks(call):
         bot.answer_callback_query(call.id)
         msg = bot.send_message(call.message.chat.id, "👤 **أدخل يوزر المستخدم لإزالة الرصيد:**", parse_mode="Markdown")
         bot.register_next_step_handler(msg, ask_username_for_removal)
+
+def execute_broadcast_offer(message):
+    if str(message.chat.id) != str(ADMIN_ID): return
+    offer_text = f"🔥 **عرض حصري جديد!** 🔥\n\n{message.text}"
+    db = load_db()
+    success_count = 0
+    for uid in db.keys():
+        try:
+            bot.send_message(int(uid), offer_text, parse_mode="Markdown")
+            success_count += 1
+        except: pass
+    bot.send_message(ADMIN_ID, f"✅ **تم إرسال العرض بنجاح إلى ({success_count}) مستخدم.**", parse_mode="Markdown")
 
 def ask_username_for_balance(message):
     if str(message.chat.id) != str(ADMIN_ID): return
@@ -354,7 +352,7 @@ def check_provider_wallet_call(message):
         bot.send_message(message.chat.id, f"خطأ: {e}")
 
 # ==========================================
-# 6. إدارة العملة (دولار / جنيه) وزر الإحالات والشحن
+# 6. إدارة العملة والإحالات باليوزر والشحن
 # ==========================================
 @bot.message_handler(func=lambda msg: is_btn(msg, 'currency'))
 def choose_currency_menu(message):
@@ -362,7 +360,7 @@ def choose_currency_menu(message):
         InlineKeyboardButton("🇪🇬 جنيه مصري (EGP)", callback_data="curr_EGP"),
         InlineKeyboardButton("🇺🇸 دولار أمريكي (USD)", callback_data="curr_USD")
     )
-    bot.send_message(message.chat.id, "💱 **اختر العملة المفضلة لعرض الأسعار والحساب:**", reply_markup=markup, parse_mode="Markdown")
+    bot.send_message(message.chat.id, "💱 **اختر العملة المفضلة لعرض الأسعار:**", reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('curr_'))
 def set_currency_callback(call):
@@ -383,7 +381,7 @@ def choose_language(message):
 @bot.callback_query_handler(func=lambda call: call.data.startswith('lang_'))
 def set_language(call):
     new_lang = call.data.split('_')[1]
-    set_lang(call.message.chat.id, new_lang)
+    set_language_db = set_lang(call.message.chat.id, new_lang)
     bot.answer_callback_query(call.id, "✅")
     bot.delete_message(call.message.chat.id, call.message.message_id)
     lang = get_user(call.message.chat.id)['lang']
@@ -406,7 +404,11 @@ def basic_buttons(message):
         bot.send_message(message.chat.id, "📦 لا توجد طلبات سابقة مسجلة في حسابك.")
     elif is_btn(message, 'referral'):
         bot_info = bot.get_me()
-        ref_link = f"https://t.me/{bot_info.username}?start={message.chat.id}"
+        username = user.get('username')
+        if not username:
+            bot.send_message(message.chat.id, "⚠️ يرجى ضبط يوزر (Username) لحسابك على تيليجرام أولاً لكي تتمكن من استخدام نظام الإحالات.")
+            return
+        ref_link = f"https://t.me/{bot_info.username}?start={username}"
         ref_text = f"🎁 **نظام الإحالات والأرباح الفورية:**\n\nشارك رابط الإحالة الخاص بك واحصل على **5 جنيه** هدية فورية عن كل شخص يسجل من خلالك!\n\n📌 **رابط الإحالة الخاص بك:**\n`{ref_link}`"
         bot.send_message(message.chat.id, ref_text, parse_mode="Markdown")
 
@@ -509,25 +511,12 @@ def payment_webhook():
         return {"status": "error"}, 200
 
 # ==========================================
-# 7. الخدمات المحلية (تصميم سيرة ذاتية ATS) والأقسام
+# 7. الأقسام والخدمات الرقمية باللوجو الجديد
 # ==========================================
 @bot.message_handler(func=lambda msg: is_btn(msg, 'services'))
 def list_categories(message):
     try:
         lang = get_user(message.chat.id)['lang']
-        markup = InlineKeyboardMarkup(row_width=1)
-        markup.add(
-            InlineKeyboardButton("📄 تصميم وصياغة سيرة ذاتية ATS بالذكاء الاصطناعي", callback_data="local_ats_cv"),
-            InlineKeyboardButton("🛍️ خدمات المتجر الرقمي العامة", callback_data="store_services_list")
-        )
-        bot.send_message(message.chat.id, "🌟 **اختر نوع الخدمات المطلوبة:**", reply_markup=markup, parse_mode="Markdown")
-    except:
-        bot.send_message(message.chat.id, "⚠️ تعذر عرض الخدمات حالياً.")
-
-@bot.callback_query_handler(func=lambda call: call.data == 'store_services_list')
-def store_services_list_callback(call):
-    try:
-        lang = get_user(call.message.chat.id)['lang']
         services = requests.get(f"{BASE_URL}/services", headers={"Authorization": f"Bearer {PROVIDER_TOKEN}"}, timeout=10).json().get('data', [])
         categories = {}
         for s in services:
@@ -535,56 +524,38 @@ def store_services_list_callback(call):
             cid = cat.get('id')
             if cid and cid not in categories: 
                 c_name = get_name(cat, lang)
-                categories[cid] = (c_name, get_ai_icon(c_name))
+                categories[cid] = (c_name, get_service_icon(c_name))
         markup = InlineKeyboardMarkup(row_width=2)
         markup.add(*[InlineKeyboardButton(f"{icon} {name}", callback_data=f"cat_{cid}") for cid, (name, icon) in categories.items()])
-        markup.add(InlineKeyboardButton("🔙 رجوع للقائمة الرئيسية", callback_data="back_to_main_srv"))
-        bot.edit_message_text("🌟 **اختر القسم المناسب:**", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+        bot.send_message(message.chat.id, "🌟 **اختر القسم المناسب:**", reply_markup=markup, parse_mode="Markdown")
     except:
-        pass
-
-@bot.callback_query_handler(func=lambda call: call.data == 'back_to_main_srv')
-def back_to_main_srv_callback(call):
-    markup = InlineKeyboardMarkup(row_width=1).add(
-        InlineKeyboardButton("📄 تصميم وصياغة سيرة ذاتية ATS بالذكاء الاصطناعي", callback_data="local_ats_cv"),
-        InlineKeyboardButton("🛍️ خدمات المتجر الرقمي العامة", callback_data="store_services_list")
-    )
-    bot.edit_message_text("🌟 **اختر نوع الخدمات المطلوبة:**", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
-
-@bot.callback_query_handler(func=lambda call: call.data == 'local_ats_cv')
-def local_ats_cv_callback(call):
-    user_id = call.message.chat.id
-    user_cv_steps[user_id] = {'step': 'waiting_data'}
-    text = "📄 **خدمة تصميم وصياغة سيرة ذاتية (ATS CV):**\n\nمن فضلك أرسل الآن في رسالة واحدة تفاصيلك الشخصية والمهنية (الاسم، المسمى الوظيفي المستهدف، خبراتك السابقة، مهاراتك التقنية والشخصية، والتعليم)، وسيقوم الذكاء الاصطناعي بمراجعتها وصياغتها لك باحترافية."
-    bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="Markdown")
-
-@bot.message_handler(func=lambda msg: msg.chat.id in user_cv_steps and user_cv_steps[msg.chat.id].get('step') == 'waiting_data')
-def handle_cv_input(message):
-    user_id = message.chat.id
-    user_data = message.text
-    del user_cv_steps[user_id]
-    
-    msg_wait = bot.send_message(user_id, "⏳ **جاري تحليل بياناتك وصياغة سيرة ذاتية متوافقة مع أنظمة الـ ATS...**", parse_mode="Markdown")
-    cv_result = ai_generate_ats_cv(user_data)
-    bot.delete_message(user_id, msg_wait.message_id)
-    
-    bot.send_message(user_id, f"🎉 **تم إنشاء وتدقيق السيرة الذاتية بنجاح:**\n\n`{cv_result}`", parse_mode="Markdown")
+        bot.send_message(message.chat.id, "⚠️ تعذر جلب الخدمات حالياً.")
 
 @bot.callback_query_handler(func=lambda call: call.data == 'back_to_cats')
 def back_to_categories(call):
-    store_services_list_callback(call)
+    lang = get_user(call.message.chat.id)['lang']
+    services = requests.get(f"{BASE_URL}/services", headers={"Authorization": f"Bearer {PROVIDER_TOKEN}"}, timeout=10).json().get('data', [])
+    categories = {}
+    for s in services:
+        cat = s.get('category', {})
+        cid = cat.get('id')
+        if cid and cid not in categories:
+            c_name = get_name(cat, lang)
+            categories[cid] = (c_name, get_service_icon(c_name))
+    markup = InlineKeyboardMarkup(row_width=2)
+    markup.add(*[InlineKeyboardButton(f"{icon} {name}", callback_data=f"cat_{cid}") for cid, (name, icon) in categories.items()])
+    bot.edit_message_text("🌟 **اختر القسم المناسب:**", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('cat_'))
 def show_services(call):
     cat_id, lang = call.data.split('_')[1], get_user(call.message.chat.id)['lang']
-    curr = get_user(call.message.chat.id).get('currency', 'EGP')
     services = requests.get(f"{BASE_URL}/services", headers={"Authorization": f"Bearer {PROVIDER_TOKEN}"}, timeout=10).json().get('data', [])
     markup = InlineKeyboardMarkup(row_width=1)
     for s in services:
         if str(s.get('category', {}).get('id')) == str(cat_id):
             s_name = get_name(s, lang)
-            markup.add(InlineKeyboardButton(f"{get_ai_icon(s_name)} {s_name}", callback_data=f"srv_{s.get('id')}"))
-    markup.add(InlineKeyboardButton("🔙 رجوع", callback_data="back_to_main_srv"))
+            markup.add(InlineKeyboardButton(f"{get_service_icon(s_name)} {s_name}", callback_data=f"srv_{s.get('id')}"))
+    markup.add(InlineKeyboardButton("🔙 رجوع", callback_data="back_to_cats"))
     bot.edit_message_text("📌 **الخدمات المتاحة:**", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('srv_'))
@@ -609,7 +580,7 @@ def show_details(call):
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
 # ==========================================
-# 8. الشراء الفعلي التلقائي والخصم من المزود
+# 8. الشراء الفعلي وفحص رصيد العميل غير الكافي
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data.startswith('buy_'))
 def process_purchase(call):
@@ -643,9 +614,20 @@ def process_purchase(call):
             else:
                 bot.send_message(user_id, "⚠️ عذراً، الخدمة غير متاحة حالياً، ولم يتم خصم أي مبلغ.")
         else:
+            # رسالة نقص الرصيد مع زر الشحن المباشر
+            lang = user['lang']
+            insufficient_msg = LANGS[lang]['insufficient'].format(int(price_egp), user['balance'])
+            markup = InlineKeyboardMarkup().add(
+                InlineKeyboardButton("💳 شحن الرصيد الآن", callback_data="direct_add_balance")
+            )
             bot.answer_callback_query(call.id, "⚠️ رصيدك غير كافٍ!", show_alert=True)
+            bot.send_message(user_id, insufficient_msg, reply_markup=markup, parse_mode="Markdown")
     except Exception as e:
         print(f"Error in purchase: {e}")
+
+@bot.callback_query_handler(func=lambda call: call.data == 'direct_add_balance')
+def direct_add_balance_callback(call):
+    ask_amount(call.message)
 
 def run_flask():
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)), debug=False, use_reloader=False)
