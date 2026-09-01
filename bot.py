@@ -10,7 +10,7 @@ from flask import Flask, render_template_string
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
 # ==========================================
-# 1. إعدادات البوت والبيانات الأساسية (ثابتة وآمنة)
+# 1. إعدادات البوت والبيانات الأساسية
 # ==========================================
 BOT_TOKEN = "8987750439:AAGqJCL6nrqaxXLlo8a9MEnuQM-WqpcRtbU"
 API_KEY = "mgapi_EiLCO4JXGXJhugqzFS6KpGu6tZmLLxMzs4IBKHIdXoU"
@@ -45,6 +45,9 @@ app = Flask(__name__)
 active_pending_payments = {}
 recent_incoming_receipts = []
 ACTIVATION_DB = {}
+
+# حماية ضد تكرار النقرات أو الطلبات السريعة
+recent_user_purchases = {}
 
 def get_api_headers():
     return {
@@ -121,7 +124,7 @@ def is_btn(msg, key):
     return any(msg.text == lang_dict.get(key) for lang_dict in LANGS.values())
 
 # ==========================================
-# 3. صفحات التفعيل والخدمات المساعدة والصور
+# 3. صفحات التفعيل والخدمات المساعدة
 # ==========================================
 def generate_active_service_link(service_name):
     token = uuid.uuid4().hex
@@ -168,25 +171,17 @@ def activate_service_page(token):
         return "<h2 style='text-align:center; color:red; margin-top:50px;'>⚠️ رابط التفعيل منتهي الصلاحية أو غير صالح!</h2>"
     return render_template_string(ACTIVATION_HTML_TEMPLATE, service_name=service_info['service'])
 
-def get_service_icon_and_image(name):
+def get_service_icon(name):
     n = name.lower()
-    if any(x in n for x in ['netflix', 'نتفلكس']): 
-        return '🍿', 'https://images.unsplash.com/photo-1574375927938-d5a98e8ffe85?q=80&w=800&auto=format&fit=crop'
-    if any(x in n for x in ['shahid', 'شاهد']): 
-        return '📺', 'https://images.unsplash.com/photo-1593784991095-a205069470b6?q=80&w=800&auto=format&fit=crop'
-    if any(x in n for x in ['gpt', 'chatgpt', 'openai']): 
-        return '🤖', 'https://images.unsplash.com/photo-1677442136019-21780efad99a?q=80&w=800&auto=format&fit=crop'
-    if any(x in n for x in ['gemini', 'جيميناي', 'ai']): 
-        return '✨', 'https://images.unsplash.com/photo-1620712943543-bcc4688e7485?q=80&w=800&auto=format&fit=crop'
-    if any(x in n for x in ['canva', 'كانفا']): 
-        return '🎨', 'https://images.unsplash.com/photo-1626785774573-4b799315345d?q=80&w=800&auto=format&fit=crop'
-    if any(x in n for x in ['spotify', 'أنغامي', 'music']): 
-        return '🎵', 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?q=80&w=800&auto=format&fit=crop'
-    if any(x in n for x in ['pubg', 'ببجي', 'game']): 
-        return '🎮', 'https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=800&auto=format&fit=crop'
-    if any(x in n for x in ['vpn', 'ترجام', 'proxy']): 
-        return '🔒', 'https://images.unsplash.com/photo-1563986768609-322da13575f3?q=80&w=800&auto=format&fit=crop'
-    return '💎', 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=800&auto=format&fit=crop'
+    if any(x in n for x in ['netflix', 'نتفلكس']): return '🍿'
+    if any(x in n for x in ['shahid', 'شاهد']): return '📺'
+    if any(x in n for x in ['gpt', 'chatgpt', 'openai']): return '🤖'
+    if any(x in n for x in ['gemini', 'جيميناي', 'ai']): return '✨'
+    if any(x in n for x in ['canva', 'كانفا']): return '🎨'
+    if any(x in n for x in ['spotify', 'أنغامي', 'music']): return '🎵'
+    if any(x in n for x in ['pubg', 'ببجي', 'game']): return '🎮'
+    if any(x in n for x in ['vpn', 'ترجام', 'proxy']): return '🔒'
+    return '💎'
 
 translation_cache = {}
 
@@ -473,7 +468,7 @@ def payment_webhook():
     return {"status": "received"}, 200
 
 # ==========================================
-# 7. عرض الخدمات بشكل منظم وصغير بأزرار منسقة
+# 7. عرض الخدمات بشكل منظم وصغير بأزرار منسقة وأيقونات دقيقة
 # ==========================================
 @bot.message_handler(func=lambda msg: is_btn(msg, 'services'))
 def list_categories(message):
@@ -482,7 +477,6 @@ def list_categories(message):
         res = requests.get(f"{BASE_URL}/products?lang={lang}", headers=get_api_headers(), timeout=10).json()
         services = res.get('products', res.get('data', []))
         
-        # تنظيم الأزرار في صفين لتكون صغيرة ومنسقة
         markup = InlineKeyboardMarkup(row_width=2)
         service_buttons = []
         
@@ -490,7 +484,7 @@ def list_categories(message):
             s_id = s.get('id')
             s_name = s.get('name', 'خدمة')
             s_price = s.get('price', 0)
-            icon, _ = get_service_icon_and_image(s_name)
+            icon = get_service_icon(s_name)
             
             btn_text = f"{icon} {s_name} ({s_price} ج)"
             service_buttons.append(InlineKeyboardButton(btn_text, callback_data=f"srv_{s_id}"))
@@ -514,7 +508,7 @@ def show_details(call):
             s_name = selected.get('name', 'خدمة')
             s_price = selected.get('price', 0)
             s_desc = selected.get('description', 'لا يوجد وصف')
-            icon, img_url = get_service_icon_and_image(s_name)
+            icon = get_service_icon(s_name)
             
             text = LANGS[lang]['details'].format(icon, s_name, s_desc, s_price, service_id)
             
@@ -526,25 +520,34 @@ def show_details(call):
                 bot.delete_message(call.message.chat.id, call.message.message_id)
             except: pass
             
-            # إرسال الصورة الحقيقية للخدمة مع التفاصيل المنظمة
-            bot.send_photo(call.message.chat.id, img_url, caption=text, reply_markup=markup, parse_mode="Markdown")
+            # رسالة نصية منسقة وآمنة بالكامل بدون أي روابط صور قد تسبب خطأ 400
+            bot.send_message(call.message.chat.id, text, reply_markup=markup, parse_mode="Markdown")
     except Exception as e:
         bot.answer_callback_query(call.id, f"⚠️ خطأ: {e}", show_alert=True)
 
 # ==========================================
-# 8. الشراء الفعلي ومنع التكرار وسحب الخدمة
+# 8. الشراء الفعلي ومنع التكرار وسحب الخدمة من الرصيد الأساسي
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data.startswith('buy_'))
 def process_purchase(call):
     try:
         _, service_id, price_str = call.data.split('_')
         price_egp, user_id = float(price_str), call.message.chat.id
+        
+        # حماية ضد تكرار النقرات السريعة (Anti-Spam Click Guard: منع التكرار خلال 5 ثوانٍ)
+        current_time = time.time()
+        if user_id in recent_user_purchases and current_time - recent_user_purchases[user_id] < 5:
+            bot.answer_callback_query(call.id, "⚠️ جاري معالجة طلبك السابق، يرجى الانتظار قليلًا.", show_alert=True)
+            return
+        recent_user_purchases[user_id] = current_time
+
         user = get_user(user_id, call.from_user.username)
         
         if user['balance'] >= price_egp:
             bot.answer_callback_query(call.id, "⏳ جاري تنفيذ الطلب وسحب الخدمة عبر رصيدك الأساسي...")
             
-            unique_request_id = f"ord-{user_id}-{service_id}-{uuid.uuid4().hex[:10]}"
+            # منع تكرار الطلبات نهائياً عبر request_id فريد وغير مكرر
+            unique_request_id = f"ord-{user_id}-{service_id}-{uuid.uuid4().hex[:12]}"
             
             payload = {
                 "product_id": int(service_id),
@@ -552,10 +555,12 @@ def process_purchase(call):
                 "request_id": unique_request_id
             }
             
+            # إرسال الطلب للمزود الأساسي للخصم من رصيدك وسحب الخدمة الفورية
             response = requests.post(f"{BASE_URL}/order", headers=get_api_headers(), json=payload, timeout=20)
             api_data = response.json()
             
             if response.status_code in [200, 201]:
+                # الخصم من رصيد العميل في البوت بعد نجاح العملية بالمزود الأساسي
                 update_balance(user_id, -price_egp)
                 
                 services = requests.get(f"{BASE_URL}/products?lang=ar", headers=get_api_headers(), timeout=10).json().get('products', [])
