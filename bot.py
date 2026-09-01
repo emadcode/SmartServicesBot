@@ -10,9 +10,9 @@ from flask import Flask, render_template_string
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
 # ==========================================
-# 1. إعدادات البوت والبيانات الأساسية
+# 1. إعدادات البوت والبيانات الأساسية (ثابتة وآمنة)
 # ==========================================
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8987750439:AAGqJCL6nrqaxXLlo8a9MEnuQM-WqpcRtbU").strip()
+BOT_TOKEN = "8987750439:AAGqJCL6nrqaxXLlo8a9MEnuQM-WqpcRtbU"
 API_KEY = "mgapi_EiLCO4JXGXJhugqzFS6KpGu6tZmLLxMzs4IBKHIdXoU"
 BASE_URL = "https://tubular-sensually-stability.ngrok-free.dev/api/v1"
 
@@ -38,9 +38,6 @@ def save_custom_prices(prices):
 
 CUSTOM_PRICES = load_custom_prices()
 active_offers = {} 
-
-if not BOT_TOKEN or ":" not in BOT_TOKEN:
-    BOT_TOKEN = "8987750439:AAGqJCL6nrqaxXLlo8a9MEnuQM-WqpcRtbU"
 
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
@@ -485,7 +482,7 @@ def list_categories(message):
         res = requests.get(f"{BASE_URL}/products?lang={lang}", headers=get_api_headers(), timeout=10).json()
         services = res.get('products', res.get('data', []))
         
-        # ترتيب الأزرار بشكل صفين لكل سطر لتكون صغيرة ومنظمة تماماً
+        # تنظيم الأزرار في صفين لتكون صغيرة ومنسقة
         markup = InlineKeyboardMarkup(row_width=2)
         service_buttons = []
         
@@ -495,7 +492,6 @@ def list_categories(message):
             s_price = s.get('price', 0)
             icon, _ = get_service_icon_and_image(s_name)
             
-            # زر صغير ومنظم يحتوي على الأيقونة والاسم والسعر فقط
             btn_text = f"{icon} {s_name} ({s_price} ج)"
             service_buttons.append(InlineKeyboardButton(btn_text, callback_data=f"srv_{s_id}"))
             
@@ -530,7 +526,7 @@ def show_details(call):
                 bot.delete_message(call.message.chat.id, call.message.message_id)
             except: pass
             
-            # إرسال تفاصيل الخدمة مع صورتها الحقيقية المناسبة
+            # إرسال الصورة الحقيقية للخدمة مع التفاصيل المنظمة
             bot.send_photo(call.message.chat.id, img_url, caption=text, reply_markup=markup, parse_mode="Markdown")
     except Exception as e:
         bot.answer_callback_query(call.id, f"⚠️ خطأ: {e}", show_alert=True)
@@ -548,7 +544,6 @@ def process_purchase(call):
         if user['balance'] >= price_egp:
             bot.answer_callback_query(call.id, "⏳ جاري تنفيذ الطلب وسحب الخدمة عبر رصيدك الأساسي...")
             
-            # منع تكرار الطلبات عبر request_id فريد وغير مكرر
             unique_request_id = f"ord-{user_id}-{service_id}-{uuid.uuid4().hex[:10]}"
             
             payload = {
@@ -557,12 +552,10 @@ def process_purchase(call):
                 "request_id": unique_request_id
             }
             
-            # إرسال الطلب للمزود للخصم من رصيدك وسحب الخدمة
             response = requests.post(f"{BASE_URL}/order", headers=get_api_headers(), json=payload, timeout=20)
             api_data = response.json()
             
             if response.status_code in [200, 201]:
-                # الخصم من رصيد العميل في البوت بعد نجاح العملية بالمزود
                 update_balance(user_id, -price_egp)
                 
                 services = requests.get(f"{BASE_URL}/products?lang=ar", headers=get_api_headers(), timeout=10).json().get('products', [])
