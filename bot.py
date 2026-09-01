@@ -10,10 +10,10 @@ from flask import Flask, render_template_string
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
 # ==========================================
-# 1. إعدادات البوت والبيانات الأساسية (مع مفتاح الـ API الجديد)
+# 1. إعدادات البوت والبيانات الأساسية
 # ==========================================
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
-API_KEY = "mgapi_EiLCO4JXGXJhugqzFS6KpGu6tZmLLxMzs4IBKHIdXoU"  # مفتاح الـ API الجديد المعتمد
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8987750439:AAGqJCL6nrqaxXLlo8a9MEnuQM-WqpcRtbU").strip()
+API_KEY = "mgapi_EiLCO4JXGXJhugqzFS6KpGu6tZmLLxMzs4IBKHIdXoU"
 BASE_URL = "https://tubular-sensually-stability.ngrok-free.dev/api/v1"
 
 RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://your-bot-app.onrender.com")
@@ -40,7 +40,7 @@ CUSTOM_PRICES = load_custom_prices()
 active_offers = {} 
 
 if not BOT_TOKEN or ":" not in BOT_TOKEN:
-    raise ValueError("⚠️ خطأ حرجي: متغير البيئة BOT_TOKEN غير مضبوط أو لا يحتوي على الفاصلة الرأسية (:). يرجى ضبطه في لوحة التحكم.")
+    BOT_TOKEN = "8987750439:AAGqJCL6nrqaxXLlo8a9MEnuQM-WqpcRtbU"
 
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
