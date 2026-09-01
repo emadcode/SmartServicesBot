@@ -124,7 +124,7 @@ def is_btn(msg, key):
     return any(msg.text == lang_dict.get(key) for lang_dict in LANGS.values())
 
 # ==========================================
-# 3. صفحات التفعيل والخدمات المساعدة
+# 3. صفحات التفعيل والخدمات المساعدة والصور
 # ==========================================
 def generate_active_service_link(service_name):
     token = uuid.uuid4().hex
@@ -171,17 +171,25 @@ def activate_service_page(token):
         return "<h2 style='text-align:center; color:red; margin-top:50px;'>⚠️ رابط التفعيل منتهي الصلاحية أو غير صالح!</h2>"
     return render_template_string(ACTIVATION_HTML_TEMPLATE, service_name=service_info['service'])
 
-def get_service_icon(name):
+def get_service_icon_and_image(name):
     n = name.lower()
-    if any(x in n for x in ['netflix', 'نتفلكس']): return '🍿'
-    if any(x in n for x in ['shahid', 'شاهد']): return '📺'
-    if any(x in n for x in ['gpt', 'chatgpt', 'openai']): return '🤖'
-    if any(x in n for x in ['gemini', 'جيميناي', 'ai']): return '✨'
-    if any(x in n for x in ['canva', 'كانفا']): return '🎨'
-    if any(x in n for x in ['spotify', 'أنغامي', 'music']): return '🎵'
-    if any(x in n for x in ['pubg', 'ببجي', 'game']): return '🎮'
-    if any(x in n for x in ['vpn', 'ترجام', 'proxy']): return '🔒'
-    return '💎'
+    if any(x in n for x in ['netflix', 'نتفلكس']): 
+        return '🍿', 'https://images.unsplash.com/photo-1574375927938-d5a98e8ffe85?q=80&w=800&auto=format&fit=crop'
+    if any(x in n for x in ['shahid', 'شاهد']): 
+        return '📺', 'https://images.unsplash.com/photo-1593784991095-a205069470b6?q=80&w=800&auto=format&fit=crop'
+    if any(x in n for x in ['gpt', 'chatgpt', 'openai']): 
+        return '🤖', 'https://images.unsplash.com/photo-1677442136019-21780efad99a?q=80&w=800&auto=format&fit=crop'
+    if any(x in n for x in ['gemini', 'جيميناي', 'ai']): 
+        return '✨', 'https://images.unsplash.com/photo-1620712943543-bcc4688e7485?q=80&w=800&auto=format&fit=crop'
+    if any(x in n for x in ['canva', 'كانفا']): 
+        return '🎨', 'https://images.unsplash.com/photo-1626785774573-4b799315345d?q=80&w=800&auto=format&fit=crop'
+    if any(x in n for x in ['spotify', 'أنغامي', 'music']): 
+        return '🎵', 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?q=80&w=800&auto=format&fit=crop'
+    if any(x in n for x in ['pubg', 'ببجي', 'game']): 
+        return '🎮', 'https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=800&auto=format&fit=crop'
+    if any(x in n for x in ['vpn', 'ترجام', 'proxy']): 
+        return '🔒', 'https://images.unsplash.com/photo-1563986768609-322da13575f3?q=80&w=800&auto=format&fit=crop'
+    return '💎', 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=800&auto=format&fit=crop'
 
 translation_cache = {}
 
@@ -226,7 +234,7 @@ LANGS = {
         'account_info': "👤 **معلومات حسابك الشخصي:**\n\n🆔 رقم الحساب: `{}`\n💰 الرصيد المتاح: **{} {}**",
         'support_info': "💬 **للتواصل مع الدعم الفني:**\n\nالمسؤول: {}",
         'choose_cat': "🎨 **اختر فئة الاشتراكات المطلوبة:**", 'available_serv': "✨ **اختر الاشتراك المطلوب:**",
-        'details': "🎯 **الخدمة:** {}\n\n📝 **التفاصيل:**\n{}\n\n💎 **السعر النهائي:** **{} EGP**\n🆔 **كود الاشتراك:** `{}`"
+        'details': "{} **{}**\n\n📝 **التفاصيل:**\n{}\n\n💎 **السعر النهائي:** **{} EGP**\n🆔 **كود الاشتراك:** `{}`"
     }
 }
 LANGS['en'] = {k: translate_text(v, 'en') for k, v in LANGS['ar'].items()}
@@ -468,7 +476,7 @@ def payment_webhook():
     return {"status": "received"}, 200
 
 # ==========================================
-# 7. الأقسام والاشتراكات عبر الـ API الجديد
+# 7. عرض الخدمات بشكل منظم وصغير بأزرار منسقة
 # ==========================================
 @bot.message_handler(func=lambda msg: is_btn(msg, 'services'))
 def list_categories(message):
@@ -477,6 +485,7 @@ def list_categories(message):
         res = requests.get(f"{BASE_URL}/products?lang={lang}", headers=get_api_headers(), timeout=10).json()
         services = res.get('products', res.get('data', []))
         
+        # ترتيب الأزرار بشكل صفين لكل سطر لتكون صغيرة ومنظمة تماماً
         markup = InlineKeyboardMarkup(row_width=2)
         service_buttons = []
         
@@ -484,15 +493,16 @@ def list_categories(message):
             s_id = s.get('id')
             s_name = s.get('name', 'خدمة')
             s_price = s.get('price', 0)
-            icon = get_service_icon(s_name)
+            icon, _ = get_service_icon_and_image(s_name)
             
-            btn_text = f"{icon} {s_name} | {s_price} EGP"
+            # زر صغير ومنظم يحتوي على الأيقونة والاسم والسعر فقط
+            btn_text = f"{icon} {s_name} ({s_price} ج)"
             service_buttons.append(InlineKeyboardButton(btn_text, callback_data=f"srv_{s_id}"))
             
         markup.add(*service_buttons)
-        bot.send_message(message.chat.id, "✨ **اختر الاشتراك المطلوب من القائمة أدناه:**", reply_markup=markup, parse_mode="Markdown")
+        bot.send_message(message.chat.id, "🛍️ **اختر الخدمة المطلوبة من القائمة أدناه:**", reply_markup=markup, parse_mode="Markdown")
     except Exception as e:
-        bot.send_message(message.chat.id, f"⚠️ تعذر جلب المنتجات من الـ API الجديد: {e}")
+        bot.send_message(message.chat.id, f"⚠️ تعذر جلب المنتجات: {e}")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('srv_'))
 def show_details(call):
@@ -508,8 +518,9 @@ def show_details(call):
             s_name = selected.get('name', 'خدمة')
             s_price = selected.get('price', 0)
             s_desc = selected.get('description', 'لا يوجد وصف')
+            icon, img_url = get_service_icon_and_image(s_name)
             
-            text = LANGS[lang]['details'].format(s_name, s_desc, s_price, service_id)
+            text = LANGS[lang]['details'].format(icon, s_name, s_desc, s_price, service_id)
             
             markup = InlineKeyboardMarkup(row_width=1).add(
                 InlineKeyboardButton(LANGS[lang]['buy_btn'], callback_data=f"buy_{service_id}_{s_price}")
@@ -519,12 +530,13 @@ def show_details(call):
                 bot.delete_message(call.message.chat.id, call.message.message_id)
             except: pass
             
-            bot.send_message(call.message.chat.id, text, reply_markup=markup, parse_mode="Markdown")
+            # إرسال تفاصيل الخدمة مع صورتها الحقيقية المناسبة
+            bot.send_photo(call.message.chat.id, img_url, caption=text, reply_markup=markup, parse_mode="Markdown")
     except Exception as e:
         bot.answer_callback_query(call.id, f"⚠️ خطأ: {e}", show_alert=True)
 
 # ==========================================
-# 8. الشراء الفعلي ومنع تكرار الطلبات (Idempotency) وسحب الخدمة من رصيد المزود
+# 8. الشراء الفعلي ومنع التكرار وسحب الخدمة
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data.startswith('buy_'))
 def process_purchase(call):
@@ -545,12 +557,12 @@ def process_purchase(call):
                 "request_id": unique_request_id
             }
             
-            # إرسال الطلب للمزود الأساسي للخصم من رصيدك وسحب الخدمة
+            # إرسال الطلب للمزود للخصم من رصيدك وسحب الخدمة
             response = requests.post(f"{BASE_URL}/order", headers=get_api_headers(), json=payload, timeout=20)
             api_data = response.json()
             
             if response.status_code in [200, 201]:
-                # الخصم من رصيد العميل في البوت بعد نجاح العملية بالمزود الأساسي
+                # الخصم من رصيد العميل في البوت بعد نجاح العملية بالمزود
                 update_balance(user_id, -price_egp)
                 
                 services = requests.get(f"{BASE_URL}/products?lang=ar", headers=get_api_headers(), timeout=10).json().get('products', [])
