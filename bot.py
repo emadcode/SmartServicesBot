@@ -7,7 +7,7 @@ import uuid
 import threading
 import time
 from flask import Flask, render_template_string
-from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, MenuButtonWebApp, WebAppInfo
+from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
 # ==========================================
 # 1. إعدادات البوت والبيانات الأساسية
@@ -186,21 +186,16 @@ def send_welcome(message):
     try:
         user_id = message.chat.id
         get_user(user_id, message.from_user.username)
-        
-        # تعيين زر الـ Menu بجانب حقل الكتابة ليقوم بفتح خيارات المتجر السريعة
         try:
             bot.set_chat_menu_button(chat_id=user_id, menu_button=telebot.types.MenuButtonCommands(type="commands"))
         except: pass
-        
         bot.reply_to(message, LANGS['ar']['welcome'], reply_markup=main_menu(user_id), parse_mode="Markdown")
     except Exception as e:
         print(f"Error in start: {e}")
 
-# أمر التعامل عند الضغط على زر القائمة (Menu)
 @bot.message_handler(commands=['menu', 'help'])
 def menu_command(message):
     user = get_user(message.chat.id, message.from_user.username)
-    bal = user['balance']
     markup = InlineKeyboardMarkup(row_width=2).add(
         InlineKeyboardButton("🛍️ فتح المتجر", callback_data="menu_open_store"),
         InlineKeyboardButton("👤 حسابي والرصيد", callback_data="menu_account"),
@@ -218,7 +213,6 @@ def menu_callbacks(call):
     
     if action == 'menu_open_store':
         bot.answer_callback_query(call.id)
-        # استدعاء دالة عرض المنتجات مباشرة
         fake_msg = call.message
         fake_msg.text = LANGS['ar']['services']
         list_categories(fake_msg)
@@ -232,12 +226,18 @@ def menu_callbacks(call):
         bot.answer_callback_query(call.id)
         bot.send_message(user_id, f"💵 **لشحن الرصيد:**\nقم بتحويل المبلغ إلى فودافون كاش أو إنستا باي على الرقم:\n👉 `{PAYMENT_NUMBER}`\nثم ارسل إيصال التحويل للإدارة.", parse_mode="Markdown")
 
+# إدارة لوحة تحكم الأدمن بشكل مباشر وآمن
 @bot.message_handler(func=lambda msg: is_btn(msg, 'admin_panel_btn'))
 def handle_admin_button(message):
-    if str(message.chat.id) != str(ADMIN_ID): return
-    res = requests.get(f"{BASE_URL}/balance", headers=get_api_headers(), timeout=10).json()
-    balance = res.get('balance', res.get('data', {}).get('balance', 'غير متوفر'))
-    bot.send_message(message.chat.id, f"👑 **لوحة الأدمن:**\n💼 رصيد محفظتك الأساسية في الـ API: **{balance} EGP**", parse_mode="Markdown")
+    if str(message.chat.id) != str(ADMIN_ID):
+        bot.send_message(message.chat.id, "⚠️ هذا الأمر مخصص للأدمن فقط.")
+        return
+    try:
+        res = requests.get(f"{BASE_URL}/balance", headers=get_api_headers(), timeout=10).json()
+        balance = res.get('balance', res.get('data', {}).get('balance', 'غير متوفر'))
+        bot.send_message(message.chat.id, f"👑 **لوحة تحكم الأدمن:**\n\n💼 رصيد محفظتك الأساسية في الـ API: **{balance} EGP**", parse_mode="Markdown")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"⚠️ خطأ في الاتصال بالـ API لجلب الرصيد: {e}")
 
 @bot.message_handler(func=lambda msg: is_btn(msg, 'account') or is_btn(msg, 'support') or is_btn(msg, 'orders') or is_btn(msg, 'referral') or is_btn(msg, 'add_balance') or is_btn(msg, 'main_bot'))
 def basic_buttons(message):
@@ -259,7 +259,7 @@ def basic_buttons(message):
         bot.send_message(message.chat.id, f"💵 **لشحن الرصيد:**\nقم بتحويل المبلغ إلى فودافون كاش أو إنستا باي على الرقم:\n👉 `{PAYMENT_NUMBER}`\nثم ارسل إيصال التحويل للإدارة للتأكيد.", parse_mode="Markdown")
 
 # ==========================================
-# 4. عرض الخدمات بدقة تامة
+# 5. عرض الخدمات بدقة تامة
 # ==========================================
 @bot.message_handler(func=lambda msg: is_btn(msg, 'services'))
 def list_categories(message):
@@ -331,7 +331,7 @@ def show_details(call):
             try: bot.delete_message(call.message.chat.id, call.message.message_id)
             except: pass
             
-            bot.send_message(call.message.chat.id, text, reply_markup=markup, parse_mode="Markdown")
+            bot.send_message(message.chat.id if 'message' in locals() else call.message.chat.id, text, reply_markup=markup, parse_mode="Markdown")
     except Exception as e:
         bot.answer_callback_query(call.id, f"⚠️ خطأ: {e}", show_alert=True)
 
@@ -340,7 +340,7 @@ def handle_out_of_stock(call):
     bot.answer_callback_query(call.id, LANGS['ar']['out_of_stock'], show_alert=True)
 
 # ==========================================
-# 5. الشراء الفعلي وحماية التكرار وسحب الخدمة
+# 6. الشراء الفعلي وحماية التكرار وسحب الخدمة
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data.startswith('buy_'))
 def process_purchase(call):
