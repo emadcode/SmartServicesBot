@@ -460,7 +460,7 @@ def wait_for_auto_payment(message):
 
     threading.Thread(target=expire_payment, daemon=True).start()
 
-    text = f"⏳ **جاري انتظار وتأكيد التحويل...**\n\nقم بالتحويل الآن بقيمة `{data['amount']} جنيه` إلى الرقم الأزرق التالي:\n👉 **[01028835231](tel:01028835231)**\n\n📱 *رقم هاتفك المسجل:* `{sender_phone}`\n⏱️ *ملاحظة:* صالحة لمدة **5 دقائق فقط**."
+    text = f"⏳ **جاري انتظار وتأكيد التحويل...**\n\nقم بالتحويل الآن بقيمة `{data['amount']} جنيه` إلى الرقم الأزرق التالي:\n👉 **[01028835231](tel:01028835231)**\n\n📱 *رقم هاتفك المسجل:* `{sender_phone}`\n⏱️ *ملاحظة:* العملية صالحة لمدة **5 دقائق فقط**."
     bot.send_message(user_id, text, parse_mode="Markdown")
 
 @app.route('/webhook', methods=['POST', 'GET'])
@@ -519,13 +519,12 @@ def show_details(call):
                 bot.delete_message(call.message.chat.id, call.message.message_id)
             except: pass
             
-            # إرسال رسالة نصية تفصيلية آمنة 100% بدون صور خارجية لتجنب أخطاء الـ URL
             bot.send_message(call.message.chat.id, text, reply_markup=markup, parse_mode="Markdown")
     except Exception as e:
         bot.answer_callback_query(call.id, f"⚠️ خطأ: {e}", show_alert=True)
 
 # ==========================================
-# 8. الشراء الفعلي وإرسال الطلب للـ API الجديد
+# 8. الشراء الفعلي ومنع تكرار الطلبات (Idempotency) وسحب الخدمة من رصيد المزود
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data.startswith('buy_'))
 def process_purchase(call):
@@ -535,9 +534,10 @@ def process_purchase(call):
         user = get_user(user_id, call.from_user.username)
         
         if user['balance'] >= price_egp:
-            bot.answer_callback_query(call.id, "⏳ جاري تنفيذ الطلب عبر الـ API الجديد...")
+            bot.answer_callback_query(call.id, "⏳ جاري تنفيذ الطلب وسحب الخدمة عبر رصيدك الأساسي...")
             
-            unique_request_id = f"order-{user_id}-{uuid.uuid4().hex[:8]}"
+            # منع تكرار الطلبات عبر request_id فريد وغير مكرر
+            unique_request_id = f"ord-{user_id}-{service_id}-{uuid.uuid4().hex[:10]}"
             
             payload = {
                 "product_id": int(service_id),
@@ -545,10 +545,12 @@ def process_purchase(call):
                 "request_id": unique_request_id
             }
             
+            # إرسال الطلب للمزود الأساسي للخصم من رصيدك وسحب الخدمة
             response = requests.post(f"{BASE_URL}/order", headers=get_api_headers(), json=payload, timeout=20)
             api_data = response.json()
             
             if response.status_code in [200, 201]:
+                # الخصم من رصيد العميل في البوت بعد نجاح العملية بالمزود الأساسي
                 update_balance(user_id, -price_egp)
                 
                 services = requests.get(f"{BASE_URL}/products?lang=ar", headers=get_api_headers(), timeout=10).json().get('products', [])
@@ -557,13 +559,13 @@ def process_purchase(call):
 
                 activation_link = generate_active_service_link(s_name)
                 
-                success_text = f"🎉 **تم إتمام الطلب بنجاح عبر الـ API الجديد!**\n💰 خصم: {int(price_egp)} EGP من رصيدك.\n\n🔗 **رابط التفعيل الفعال:**\n`{activation_link}`\n\n*(اضغط على الزر أدناه لتفعيل اشتراكك)*"
+                success_text = f"🎉 **تم إتمام الطلب بنجاح وسحب الخدمة من حسابك الأساسي!**\n💰 خصم: {int(price_egp)} EGP من رصيد العميل.\n\n🔗 **رابط التفعيل الفعال للعميل:**\n`{activation_link}`\n\n*(اضغط على الزر أدناه لتفعيل اشتراكك)*"
                 markup = InlineKeyboardMarkup().add(
                     InlineKeyboardButton("🚀 فتح صفحة التفعيل", url=activation_link)
                 )
                 bot.send_message(user_id, success_text, reply_markup=markup, parse_mode="Markdown")
             else:
-                bot.send_message(user_id, f"⚠️ عذراً، فشل تنفيذ الطلب من المزود: {api_data.get('message', 'خطأ غير معروف')}")
+                bot.send_message(user_id, f"⚠️ عذراً، فشل تنفيذ الطلب من المزود الأساسي: {api_data.get('message', 'خطأ غير معروف')}")
         else:
             lang = user['lang']
             insufficient_msg = LANGS[lang]['insufficient'].format(int(price_egp), user['balance'])
