@@ -20,15 +20,29 @@ RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://your-bot-ap
 
 ADMIN_ID = "1941469722"  # 👑 الـ ID الخاص بك
 ADMIN_USERNAME = "@emadabdelhailm" 
-MAIN_BOT_LINK = "https://t.me/MGStore_bot" # 🔗 البوت الأساسي
+MAIN_BOT_LINK = "https://t.me/MGStore_bot"
 
-PAYMENT_NUMBER = "01028835231"        # رقم التحويل
+PAYMENT_NUMBER = "01028835231"
+PRICES_FILE = 'custom_prices.json'
+
+def load_custom_prices():
+    if not os.path.exists(PRICES_FILE): return {}
+    try:
+        with open(PRICES_FILE, 'r', encoding='utf-8') as f: return json.load(f)
+    except: return {}
+
+def save_custom_prices(prices):
+    try:
+        with open(PRICES_FILE, 'w', encoding='utf-8') as f: json.dump(prices, f, indent=4, ensure_ascii=False)
+    except: pass
+
+CUSTOM_PRICES = load_custom_prices()
 
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
-active_pending_payments = {}
 user_payment_data = {}
+admin_temp_state = {}
 ACTIVATION_DB = {}
 recent_user_purchases = {}
 
@@ -145,16 +159,16 @@ def get_service_icon(name):
     return '💠'
 
 # ==========================================
-# 4. قاموس واجهة أقل وأسرع تفاعلاً
+# 4. قاموس واجهة البوت
 # ==========================================
 LANGS = {
     'ar': {
-        'welcome': "🌟 **مرحباً بك في متجر الاشتراكات الرقمية السريع!**\n\n👇 اختر ما يناسبك من الأزرار أدناه:",
+        'welcome': "🌟 **مرحباً بك في متجر الاشتراكات الرقمية!**\n\n👇 اختر ما تحتاجه من القائمة أدناه:",
         'services': "🛍️ المنتجات", 'orders': "📦 طلباتي", 
         'account': "👤 حسابي", 'add_balance': "💳 شحن الرصيد",
         'admin_panel_btn': "👑 لوحة التحكم",
-        'ask_amount': "💵 **أدخل المبلغ المراد شحنه (بالجنيه المصري):**\n\n📌 (اكتب 'إلغاء' للتراجع)",
-        'ask_phone': "📱 **أدخل رقم هاتفك الذي قمت بالتحويل منه (مثلاً: 01012345678):**",
+        'ask_amount': "💵 **أدخل المبلغ المراد شحنه (بالجنيه المصري):**",
+        'ask_phone': "📱 **أرسل رقم هاتفك الذي قمت بالتحويل منه:**",
         'pay_instructions': "💳 **تعليمات شحن الرصيد:**\n\nقم بتحويل مبلغ `{0} جنيه` إلى رقم المحفظة التالي (اضغط للنسخ):\n👉 `{1}`\n\n📱 **رقم الهاتف المحول منه:** `{2}`\n\n⏳ *سيتم مراجعة التحويل وإضافة الرصيد فوراً.*",
         'insufficient': "⚠️ **رصيدك الحالي غير كافٍ!**\n\n💰 المطلوب: `{0} جنيه`\n💳 رصيدك: `{1} جنيه`",
         'buy_btn': "💳 شراء فوري",
@@ -166,7 +180,6 @@ LANGS = {
 def main_menu(user_id, lang='ar'):
     l = LANGS.get(lang, LANGS['ar'])
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    # تقليل عدد الأزرار الرئيسية لضمان سرعة التفاعل والوضوح
     markup.row(KeyboardButton(l['services']), KeyboardButton(l['account']))
     markup.row(KeyboardButton(l['add_balance']), KeyboardButton(l['orders']))
     if str(user_id) == str(ADMIN_ID):
@@ -183,7 +196,140 @@ def send_welcome(message):
         print(f"Error: {e}")
 
 # ==========================================
-# 5. شحن الرصيد المطور (رقم قابل للنسخ + طلب رقم المحول منه)
+# 5. لوحة تحكم الأدمن الشاملة (تعديل الأسعار والأرصدة)
+# ==========================================
+@bot.message_handler(func=lambda msg: is_btn(msg, 'admin_panel_btn'))
+def handle_admin_button(message):
+    if str(message.chat.id) != str(ADMIN_ID): return
+    open_admin_panel(message.chat.id)
+
+def open_admin_panel(chat_id):
+    markup = InlineKeyboardMarkup(row_width=1).add(
+        InlineKeyboardButton("💼 فحص رصيد المزود الأساسي", callback_data="adm_wallet"),
+        InlineKeyboardButton("👥 عرض المستخدمين والأرصدة", callback_data="adm_users_list"),
+        InlineKeyboardButton("💰 شحن رصيد لمستخدم", callback_data="adm_add_balance"),
+        InlineKeyboardButton("💸 خصم رصيد من مستخدم", callback_data="adm_remove_balance"),
+        InlineKeyboardButton("✏️ تعديل أسعار الخدمات", callback_data="adm_edit_prices")
+    )
+    bot.send_message(chat_id, "👑 **لوحة تحكم الأدمن المتكاملة:**", reply_markup=markup, parse_mode="Markdown")
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('adm_'))
+def admin_callbacks(call):
+    if str(call.message.chat.id) != str(ADMIN_ID): return
+    action = call.data
+    
+    if action == 'adm_wallet':
+        bot.answer_callback_query(call.id)
+        try:
+            res = requests.get(f"{BASE_URL}/balance", headers=get_api_headers(), timeout=10).json()
+            balance = res.get('balance', res.get('data', {}).get('balance', 'غير متوفر'))
+            bot.send_message(call.message.chat.id, f"💼 رصيد محفظتك الأساسية لدى المزود: **{balance} EGP**", parse_mode="Markdown")
+        except Exception as e:
+            bot.send_message(call.message.chat.id, f"⚠️ خطأ: {e}")
+            
+    elif action == 'adm_users_list':
+        bot.answer_callback_query(call.id)
+        db = load_db()
+        text = "👥 **قائمة المستخدمين والأرصدة:**\n\n"
+        for uid, info in db.items():
+            uname = info.get('username', 'بدون يوزر')
+            bal = info.get('balance', 0.0)
+            text += f"▪️ `{uid}` | @{uname} | **{bal} جنيه**\n"
+        if len(text) > 4000: text = text[:4000] + "\n...(تم الاختصار)"
+        bot.send_message(call.message.chat.id, text, parse_mode="Markdown")
+        
+    elif action == 'adm_add_balance':
+        bot.answer_callback_query(call.id)
+        msg = bot.send_message(call.message.chat.id, "👤 **أدخل يوزر المستخدم لإضافة الرصيد (مثلاً: @username):**", parse_mode="Markdown")
+        bot.register_next_step_handler(msg, ask_username_for_balance)
+        
+    elif action == 'adm_remove_balance':
+        bot.answer_callback_query(call.id)
+        msg = bot.send_message(call.message.chat.id, "👤 **أدخل يوزر المستخدم لخصم الرصيد:**", parse_mode="Markdown")
+        bot.register_next_step_handler(msg, ask_username_for_removal)
+
+    elif action == 'adm_edit_prices':
+        bot.answer_callback_query(call.id)
+        try:
+            res = requests.get(f"{BASE_URL}/products?lang=ar", headers=get_api_headers(), timeout=10).json()
+            services = res if isinstance(res, list) else res.get('products', res.get('data', res.get('items', [])))
+            markup = InlineKeyboardMarkup(row_width=1)
+            for s in services:
+                s_id = s.get('id') or s.get('product_id')
+                s_name = s.get('name') or s.get('title') or 'خدمة'
+                markup.add(InlineKeyboardButton(f" تعديل سعر: {s_name}", callback_data=f"price_edit_{s_id}"))
+            bot.send_message(call.message.chat.id, "✏️ **اختر الخدمة المراد تعديل سعرها:**", reply_markup=markup, parse_mode="Markdown")
+        except Exception as e:
+            bot.send_message(call.message.chat.id, f"⚠️ خطأ في جلب الخدمات: {e}")
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('price_edit_'))
+def price_edit_callback(call):
+    if str(call.message.chat.id) != str(ADMIN_ID): return
+    service_id = call.data.split('_')[2]
+    bot.answer_callback_query(call.id)
+    msg = bot.send_message(call.message.chat.id, "💵 **أدخل السعر الجديد بالجنيه (EGP):**", parse_mode="Markdown")
+    admin_temp_state[call.message.chat.id] = {'edit_price_id': service_id}
+    bot.register_next_step_handler(msg, save_new_service_price)
+
+def save_new_service_price(message):
+    if str(message.chat.id) != str(ADMIN_ID): return
+    state = admin_temp_state.get(message.chat.id)
+    if not state: return
+    try:
+        new_price = float(message.text.strip())
+        s_id = state['edit_price_id']
+        CUSTOM_PRICES[str(s_id)] = new_price
+        save_custom_prices(CUSTOM_PRICES)
+        bot.send_message(message.chat.id, f"✅ تم تحديث سعر الخدمة (كود: {s_id}) إلى `{new_price} EGP` بنجاح.", parse_mode="Markdown")
+    except:
+        bot.send_message(message.chat.id, "⚠️ قيمة غير صالحة.")
+
+def ask_username_for_balance(message):
+    if str(message.chat.id) != str(ADMIN_ID): return
+    u_input = message.text.strip().replace('@', '').lower()
+    db = load_db()
+    target_uid = next((uid for uid, info in db.items() if info.get('username', '').strip().lower() == u_input), None)
+    if not target_uid:
+        bot.send_message(message.chat.id, "⚠️ لم يتم العثور على المستخدم.")
+        return
+    msg = bot.send_message(message.chat.id, "💵 **أدخل المبلغ المراد إضافته:**", parse_mode="Markdown")
+    bot.register_next_step_handler(msg, lambda m: execute_admin_balance_add(m, target_uid))
+
+def execute_admin_balance_add(message, target_uid):
+    if str(message.chat.id) != str(ADMIN_ID): return
+    try:
+        amount = float(message.text.strip())
+        update_balance(target_uid, amount)
+        bot.send_message(ADMIN_ID, f"✅ تمت إضافة `{amount} جنيه` بنجاح.", parse_mode="Markdown")
+        bot.send_message(int(target_uid), f"🎁 تم شحن رصيدك بمبلغ **{amount} جنيه** بواسطة الإدارة.", parse_mode="Markdown")
+    except:
+        bot.send_message(message.chat.id, "⚠️ قيمة غير صالحة.")
+
+def ask_username_for_removal(message):
+    if str(message.chat.id) != str(ADMIN_ID): return
+    u_input = message.text.strip().replace('@', '').lower()
+    db = load_db()
+    target_uid = next((uid for uid, info in db.items() if info.get('username', '').strip().lower() == u_input), None)
+    if not target_uid:
+        bot.send_message(message.chat.id, "⚠️ لم يتم العثور على المستخدم.")
+        return
+    msg = bot.send_message(message.chat.id, "💵 **أدخل المبلغ المراد خصمه:**", parse_mode="Markdown")
+    bot.register_next_step_handler(msg, lambda m: execute_admin_balance_remove(m, target_uid))
+
+def execute_admin_balance_remove(message, target_uid):
+    if str(message.chat.id) != str(ADMIN_ID): return
+    try:
+        amount = float(message.text.strip())
+        db = load_db()
+        current_balance = db[target_uid].get('balance', 0.0)
+        db[target_uid]['balance'] = round(max(0.0, current_balance - amount), 2)
+        save_db(db)
+        bot.send_message(ADMIN_ID, f"✅ تم خصم `{amount} جنيه` بنجاح.", parse_mode="Markdown")
+    except:
+        bot.send_message(message.chat.id, "⚠️ قيمة غير صالحة.")
+
+# ==========================================
+# 6. شحن الرصيد والتفاعل السريع
 # ==========================================
 @bot.message_handler(func=lambda msg: is_btn(msg, 'add_balance'))
 def ask_amount(message):
@@ -191,9 +337,6 @@ def ask_amount(message):
     bot.register_next_step_handler(msg_reply, process_amount_step)
 
 def process_amount_step(message):
-    if message.text.strip().lower() in ['إلغاء', 'cancel']:
-        bot.send_message(message.chat.id, "❌ تم الإلغاء.")
-        return
     try:
         amount = float(message.text.strip())
         if amount <= 0: raise ValueError
@@ -201,32 +344,23 @@ def process_amount_step(message):
         msg = bot.send_message(message.chat.id, LANGS['ar']['ask_phone'], parse_mode="Markdown")
         bot.register_next_step_handler(msg, process_phone_step)
     except:
-        bot.send_message(message.chat.id, "⚠️ يرجى إدخال مبلغ صحيح بالأرقام.")
+        bot.send_message(message.chat.id, "⚠️ يرجى إدخال مبلغ صحيح.")
 
 def process_phone_step(message):
     user_id = message.chat.id
     phone = message.text.strip()
-    if user_id not in user_payment_data:
-        bot.send_message(user_id, "⚠️ حدث خطأ، يرجى إعادة محاولة الشحن من القائمة.")
-        return
-    
+    if user_id not in user_payment_data: return
     amount = user_payment_data[user_id]['amount']
-    # جعل الرقم يظهر بطريقة مميزة وقابلة للنسخ السريع بالماركدون
-    text = LANGS['ar']['pay_instructions'].format(amount, PAYMENT_NUMBER, phone)
     
-    markup = InlineKeyboardMarkup().add(
-        InlineKeyboardButton("✅ تم التحويل وإرسال الطلب للأدمن", callback_data="pay_done")
-    )
+    text = LANGS['ar']['pay_instructions'].format(amount, PAYMENT_NUMBER, phone)
+    markup = InlineKeyboardMarkup().add(InlineKeyboardButton("✅ تم التحويل", callback_data="pay_done"))
     bot.send_message(user_id, text, reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == 'pay_done')
 def pay_done_callback(call):
-    bot.answer_callback_query(call.id, "✅ تم تسجيل طلب الشحن بنجاح وستم مراجعته فوراً.")
-    bot.edit_message_text("✅ **تم إرسال طلب الشحن بنجاح وفي انتظار تأكيد الإدارة.**", call.message.chat.id, call.message.message_id, parse_mode="Markdown")
+    bot.answer_callback_query(call.id, "✅ تم إرسال طلب الشحن للإدارة.")
+    bot.edit_message_text("✅ **تم تسجيل طلب الشحن وفي انتظار المراجعة.**", call.message.chat.id, call.message.message_id, parse_mode="Markdown")
 
-# ==========================================
-# 6. إدارة الحساب والأدمن
-# ==========================================
 @bot.message_handler(func=lambda msg: is_btn(msg, 'account') or is_btn(msg, 'orders'))
 def basic_buttons(message):
     user = get_user(message.chat.id, message.from_user.username)
@@ -235,37 +369,25 @@ def basic_buttons(message):
     elif is_btn(message, 'orders'):
         bot.send_message(message.chat.id, "📦 لا توجد طلبات سابقة مسجلة.", parse_mode="Markdown")
 
-@bot.message_handler(func=lambda msg: is_btn(msg, 'admin_panel_btn'))
-def handle_admin_button(message):
-    if str(message.chat.id) != str(ADMIN_ID): return
-    try:
-        res = requests.get(f"{BASE_URL}/balance", headers=get_api_headers(), timeout=10).json()
-        balance = res.get('balance', res.get('data', {}).get('balance', 'غير متوفر'))
-        bot.send_message(message.chat.id, f"👑 **لوحة الأدمن:**\n💼 رصيد المزود الأساسي: **{balance} EGP**", parse_mode="Markdown")
-    except Exception as e:
-        bot.send_message(message.chat.id, f"⚠️ خطأ جلب الرصيد: {e}")
-
 # ==========================================
-# 7. عرض الخدمات المختصرة والسريعة (بدون تكرار)
+# 7. عرض الخدمات والمنتجات المخصصة
 # ==========================================
 @bot.message_handler(func=lambda msg: is_btn(msg, 'services'))
 def list_categories(message):
     try:
         res = requests.get(f"{BASE_URL}/products?lang=ar", headers=get_api_headers(), timeout=10).json()
-        services = []
-        if isinstance(res, list): services = res
-        elif isinstance(res, dict): services = res.get('products', res.get('data', res.get('items', [])))
+        services = res if isinstance(res, list) else res.get('products', res.get('data', res.get('items', [])))
         
         if not services:
             bot.send_message(message.chat.id, "⚠️ لا توجد منتجات متاحة حالياً.")
             return
 
-        # منع الخدمات المتكررة
         seen = set()
         unique_services = []
         for s in services:
             name = (s.get('name') or s.get('title') or '').strip().lower()
-            price = s.get('price') or s.get('rate') or 0
+            s_id = str(s.get('id') or s.get('product_id'))
+            price = CUSTOM_PRICES.get(s_id, s.get('price') or s.get('rate') or 0)
             ident = f"{name}_{price}"
             if ident not in seen:
                 seen.add(ident)
@@ -273,9 +395,9 @@ def list_categories(message):
 
         markup = InlineKeyboardMarkup(row_width=1)
         for s in unique_services:
-            s_id = s.get('id') or s.get('product_id')
+            s_id = str(s.get('id') or s.get('product_id'))
             s_name = s.get('name') or s.get('title') or 'خدمة'
-            s_price = s.get('price') or s.get('rate') or 0
+            s_price = CUSTOM_PRICES.get(s_id, s.get('price') or s.get('rate') or 0)
             raw_stock = s.get('stock') if s.get('stock') is not None else s.get('quantity')
             stock = raw_stock if raw_stock is not None else '∞'
             
@@ -297,7 +419,7 @@ def show_details(call):
         
         if selected:
             s_name = selected.get('name') or selected.get('title') or 'خدمة'
-            s_price = selected.get('price') or selected.get('rate') or 0
+            s_price = CUSTOM_PRICES.get(str(service_id), selected.get('price') or selected.get('rate') or 0)
             s_desc = selected.get('description') or selected.get('desc') or 'لا يوجد وصف.'
             icon = get_service_icon(s_name)
             raw_stock = selected.get('stock') if selected.get('stock') is not None else selected.get('quantity')
@@ -322,9 +444,6 @@ def show_details(call):
 def handle_out_of_stock(call):
     bot.answer_callback_query(call.id, "⚠️ عذراً، الكمية نفذت.", show_alert=True)
 
-# ==========================================
-# 8. تنفيذ الشراء الفوري وسحب الخدمة
-# ==========================================
 @bot.callback_query_handler(func=lambda call: call.data.startswith('buy_'))
 def process_purchase(call):
     try:
