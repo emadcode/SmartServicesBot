@@ -7,26 +7,24 @@ import uuid
 import re
 import threading
 import time
-import base64
-from flask import Flask, request
+from flask import Flask, request, render_template_string
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
 # ==========================================
-# 1. إعدادات البوت والبيانات الأساسية
+# 1. إعدادات البوت والبيانات الأساسية (الربط بالـ API الجديد)
 # ==========================================
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8987750439:AAGqJCL6nrqaxXLlo8a9MEnuQM-WqpcRtbU")
-PROVIDER_TOKEN = os.environ.get("PROVIDER_TOKEN", "bk_01M1709WVE7KVBQ1YY9BVM4KNN") 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "") 
-BASE_URL = "https://xprostore.store/api/v1"
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "mgapi_EiLCO4JXGXJhugqzFS6KpGu6tZmLLxMzs4IBKHIdXoU")
+API_KEY = os.environ.get("API_KEY", "mgapi_EiLCO4JXGXJhugqzFS6KpGu6tZmLLxMzs4IBKHIdXoU")  # مفتاح الـ API الجديد
+BASE_URL = "https://tubular-sensually-stability.ngrok-free.dev/api/v1"
+
+RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://your-bot-app.onrender.com")
 
 ADMIN_ID = "1941469722"  # 👑 الـ ID الخاص بك
 ADMIN_USERNAME = "@emadabdelhailm" 
 
 PAYMENT_NUMBER = "01028835231"        # رقم المحفظة / إنستا باي
 
-DOLLAR_PRICE_EGP = 50  
 FIXED_PROFIT_EGP = 100 
-
 PRICES_FILE = 'custom_prices.json'
 
 def load_custom_prices():
@@ -48,6 +46,15 @@ app = Flask(__name__)
 
 active_pending_payments = {}
 recent_incoming_receipts = []
+ACTIVATION_DB = {}
+
+# دالة لتجهيز Headers للاتصال بالـ API الجديد
+def get_api_headers():
+    return {
+        "Authorization": f"Bearer {API_KEY}",
+        "x-api-key": API_KEY,
+        "Content-Type": "application/json"
+    }
 
 # ==========================================
 # 2. قاعدة البيانات الآمنة للأرصدة
@@ -117,13 +124,52 @@ def is_btn(msg, key):
     return any(msg.text == lang_dict.get(key) for lang_dict in LANGS.values())
 
 # ==========================================
-# 3. توليد روابط بنمط جوجل الرسمي الثابت
+# 3. مساعدات الذكاء الاصطناعي والتخزين المؤقت للروابط
 # ==========================================
-def generate_google_style_link(service_name):
-    # توكن مشفر بالكامل بنفس مظهر نمط روابط تفعيل جوجل
-    raw_signature = f"google_activation_{service_name}_{uuid.uuid4().hex}_{uuid.uuid4().hex}_{time.time()}"
-    encoded_token = base64.urlsafe_b64encode(raw_signature.encode()).decode().rstrip("=")
-    return f"https://serviceactivation.google.com/subscription/new/{encoded_token}"
+def generate_active_service_link(service_name):
+    token = uuid.uuid4().hex
+    ACTIVATION_DB[token] = {
+        "service": service_name,
+        "time": time.time()
+    }
+    base_host = RENDER_EXTERNAL_URL.rstrip('/')
+    return f"{base_host}/activate/{token}"
+
+ACTIVATION_HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>تفعيل الاشتراك الرقمي الفوري</title>
+    <style>
+        body { font-family: Tahoma, sans-serif; background-color: #0f172a; color: #fff; text-align: center; padding: 40px; }
+        .card { background: #1e293b; padding: 30px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); max-width: 450px; margin: auto; }
+        h2 { color: #38bdf8; }
+        p { color: #94a3b8; line-height: 1.6; }
+        .service-box { background: #334155; padding: 15px; border-radius: 8px; margin: 20px 0; font-size: 18px; color: #facc15; font-weight: bold; }
+        .btn { display: inline-block; background: #2563eb; color: white; padding: 12px 25px; border-radius: 8px; text-decoration: none; font-weight: bold; margin-top: 15px; }
+        .btn:hover { background: #1d4ed8; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>🚀 صفحة التفعيل الرسمية</h2>
+        <p>تم تأكيد طلبك بنجاح وجاري تفعيل الاشتراك الخاص بك:</p>
+        <div class="service-box">{{ service_name }}</div>
+        <p>يمكنك الآن الاستمتاع بالخدمة بكل سهولة.</p>
+        <a href="https://t.me/" class="btn">العودة إلى البوت</a>
+    </div>
+</body>
+</html>
+"""
+
+@app.route('/activate/<token>', methods=['GET'])
+def activate_service_page(token):
+    service_info = ACTIVATION_DB.get(token)
+    if not service_info:
+        return "<h2 style='text-align:center; color:red; margin-top:50px;'>⚠️ رابط التفعيل منتهي الصلاحية أو غير صالح!</h2>"
+    return render_template_string(ACTIVATION_HTML_TEMPLATE, service_name=service_info['service'])
 
 def get_service_icon(name):
     n = name.lower()
@@ -147,21 +193,6 @@ def get_ai_service_image(service_name):
     if 'vpn' in n: return "https://images.unsplash.com/photo-1563986768609-322da13575f3?q=80&w=800&auto=format&fit=crop"
     return "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=800&auto=format&fit=crop"
 
-def ai_generate_subscription_interface(service_name, raw_desc):
-    if not GEMINI_API_KEY:
-        return f"🎯 **اشتراك مميز:** {service_name}\n\n📝 **التفاصيل:**\n{raw_desc}"
-    try:
-        prompt = f"Design a clean, highly attractive subscription interface in Arabic for '{service_name}' with rich emojis and organized sections. Original description: {raw_desc}"
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
-        headers = {'Content-Type': 'application/json'}
-        payload = {"contents": [{"parts": [{"text": prompt}]}]}
-        response = requests.post(url, headers=headers, json=payload, timeout=6)
-        if response.status_code == 200:
-            return response.json()['candidates'][0]['content']['parts'][0]['text']
-    except:
-        pass
-    return f"🎯 **اشتراك مميز:** {service_name}\n\n📝 **التفاصيل:**\n{raw_desc}"
-
 translation_cache = {}
 
 def translate_text(text, target_lang):
@@ -175,47 +206,6 @@ def translate_text(text, target_lang):
         translation_cache[cache_key] = translated
         return translated
     except Exception: return text
-
-def ai_generate_offer_banner(service_name, old_price, new_price):
-    if not GEMINI_API_KEY:
-        return f"🔥 **عرض خاص لفترة محدودة!**\n\n🎯 الخدمة: {service_name}\n❌ السعر القديم: {old_price} جنيه\n💎 السعر الحالي: **{new_price} جنيه**"
-    try:
-        prompt = f"Design a promotional banner in Arabic for '{service_name}'. Old price: {old_price} EGP, New promo price: {new_price} EGP."
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
-        headers = {'Content-Type': 'application/json'}
-        payload = {"contents": [{"parts": [{"text": prompt}]}]}
-        response = requests.post(url, headers=headers, json=payload, timeout=6)
-        if response.status_code == 200:
-            return response.json()['candidates'][0]['content']['parts'][0]['text']
-    except:
-        pass
-    return f"🔥 **عرض خاص حصري!**\n\n🎯 الخدمة: {service_name}\n💎 السعر الجديد: **{new_price} جنيه**"
-
-def ai_analyze_payment_receipt(message_text):
-    phone_match = re.search(r'(01[0125]\d{8})', message_text)
-    amount_match = re.search(r'(\d+(?:\.\d+)?)\s*(جنيه|جـ|EGP|LE)?', message_text)
-    
-    extracted_amount = float(amount_match.group(1)) if amount_match else 0.0
-    extracted_phone = phone_match.group(1) if phone_match else ""
-
-    if not GEMINI_API_KEY:
-        return {"valid": extracted_amount > 0, "amount": extracted_amount, "phone": extracted_phone}
-
-    try:
-        prompt = f"Analyze this text. Extract strictly a JSON object with keys: valid (true/false), amount (float number), phone (string). Text: {message_text}"
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
-        headers = {'Content-Type': 'application/json'}
-        payload = {"contents": [{"parts": [{"text": prompt}]}]}
-        response = requests.post(url, headers=headers, json=payload, timeout=5)
-        if response.status_code == 200:
-            ai_reply = response.json()['candidates'][0]['content']['parts'][0]['text']
-            clean_reply = ai_reply.replace("```json", "").replace("```", "").strip()
-            data = json.loads(clean_reply)
-            if data.get('amount', 0) > 0:
-                return data
-    except:
-        pass
-    return {"valid": extracted_amount > 0, "amount": extracted_amount, "phone": extracted_phone}
 
 def get_name(item, lang):
     name = item.get('name_ar', item.get('name', 'خدمة'))
@@ -265,7 +255,7 @@ def main_menu(user_id, lang='ar'):
     return markup
 
 # ==========================================
-# 5. لوحة تحكم الأدمن (مع زر توليد روابط Google المماثلة)
+# 5. لوحة تحكم الأدمن
 # ==========================================
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -285,11 +275,8 @@ def handle_admin_button(message):
 
 def open_admin_panel(chat_id):
     markup = InlineKeyboardMarkup(row_width=1).add(
-        InlineKeyboardButton("🔗 توليد رابط مشابه لرابط جوجل (مجاناً بدون رصيد)", callback_data="adm_gen_google_style_link"),
-        InlineKeyboardButton("⚙️ تعديل أسعار الاشتراكات محلياً", callback_data="adm_edit_prices_menu"),
-        InlineKeyboardButton("🏷️ إنشاء وعرض خصم لخدمة (عبر AI)", callback_data="adm_create_offer"),
+        InlineKeyboardButton("💼 فحص رصيد المتجر الأساسي عبر الـ API الجديد", callback_data="adm_wallet"),
         InlineKeyboardButton("👥 المستخدمين والأرصدة الحالية", callback_data="adm_users_list"),
-        InlineKeyboardButton("💼 فحص محفظة المتجر الأساسية (/wallet)", callback_data="adm_wallet"),
         InlineKeyboardButton("💰 شحن رصيد لمستخدم", callback_data="adm_add_balance"),
         InlineKeyboardButton("💸 إزالة رصيد من مستخدم", callback_data="adm_remove_balance")
     )
@@ -299,36 +286,7 @@ def open_admin_panel(chat_id):
 def admin_callbacks(call):
     if str(call.message.chat.id) != str(ADMIN_ID): return
     action = call.data
-    if action == 'adm_gen_google_style_link':
-        bot.answer_callback_query(call.id)
-        msg = bot.send_message(call.message.chat.id, "🔗 **أرسل الآن اسم الخدمة أو نوع الاشتراك لتوليد الرابط بنفس شكل جوجل:**", parse_mode="Markdown")
-        bot.register_next_step_handler(msg, process_admin_google_link_generation)
-    elif action == 'adm_edit_prices_menu':
-        bot.answer_callback_query(call.id)
-        try:
-            services = requests.get(f"{BASE_URL}/services", headers={"Authorization": f"Bearer {PROVIDER_TOKEN}"}, timeout=10).json().get('data', [])
-            markup = InlineKeyboardMarkup(row_width=1)
-            for s in services[:20]:
-                s_id = str(s.get('id'))
-                s_name = s.get('name_ar', s.get('name', 'خدمة'))
-                current_p = CUSTOM_PRICES.get(s_id, int(float(s.get('rate', s.get('price', 0))) * DOLLAR_PRICE_EGP) + FIXED_PROFIT_EGP)
-                markup.add(InlineKeyboardButton(f"✏️ {s_name} [{current_p} ج]", callback_data=f"edit_p_{s_id}"))
-            bot.send_message(call.message.chat.id, "📌 **اختر الخدمة لتعديل سعرها محلياً:**", reply_markup=markup, parse_mode="Markdown")
-        except:
-            bot.send_message(call.message.chat.id, "⚠️ تعذر جلب الخدمات.")
-    elif action == 'adm_create_offer':
-        bot.answer_callback_query(call.id)
-        try:
-            services = requests.get(f"{BASE_URL}/services", headers={"Authorization": f"Bearer {PROVIDER_TOKEN}"}, timeout=10).json().get('data', [])
-            markup = InlineKeyboardMarkup(row_width=1)
-            for s in services[:15]:
-                s_id = s.get('id')
-                s_name = s.get('name_ar', s.get('name', 'خدمة'))
-                markup.add(InlineKeyboardButton(f"🏷️ {s_name}", callback_data=f"offer_srv_{s_id}"))
-            bot.send_message(call.message.chat.id, "📌 **اختر الخدمة لعمل عرض وتوقيت خاص لها:**", reply_markup=markup, parse_mode="Markdown")
-        except:
-            bot.send_message(call.message.chat.id, "⚠️ تعذر جلب الخدمات.")
-    elif action == 'adm_users_list':
+    if action == 'adm_users_list':
         bot.answer_callback_query(call.id)
         db = load_db()
         text = "👥 **قائمة المستخدمين والأرصدة الحالية:**\n\n"
@@ -350,74 +308,13 @@ def admin_callbacks(call):
         msg = bot.send_message(call.message.chat.id, "👤 **أدخل يوزر المستخدم لإزالة الرصيد:**", parse_mode="Markdown")
         bot.register_next_step_handler(msg, ask_username_for_removal)
 
-def process_admin_google_link_generation(message):
-    if str(message.chat.id) != str(ADMIN_ID): return
-    service_name = message.text.strip()
-    link = generate_google_style_link(service_name)
-    
-    markup = InlineKeyboardMarkup().add(
-        InlineKeyboardButton("🔗 رابط التفعيل المشفر", url=link)
-    )
-    
-    response_text = f"✨ **تم توليد الرابط بنجاح (بنفس نمط جوجل):**\n\n🎯 **الخدمة:** {service_name}\n\n🔗 **الرابط:**\n`{link}`"
-    bot.send_message(ADMIN_ID, response_text, reply_markup=markup, parse_mode="Markdown")
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith('edit_p_'))
-def edit_price_selected(call):
-    service_id = call.data.split('_')[2]
-    msg = bot.send_message(call.message.chat.id, "💵 **أدخل السعر الجديد المخصص لهذه الخدمة (بالجنيه المصري):**", parse_mode="Markdown")
-    bot.register_next_step_handler(msg, lambda m: save_new_custom_price(m, service_id))
-
-def save_new_custom_price(message, service_id):
+def check_provider_wallet_call(message):
     try:
-        new_price = float(message.text.strip())
-        CUSTOM_PRICES[str(service_id)] = new_price
-        save_custom_prices(CUSTOM_PRICES)
-        bot.send_message(ADMIN_ID, f"✅ **تم تحديث سعر الخدمة محلياً بنجاح إلى: {new_price} جنيه**", parse_mode="Markdown")
-    except:
-        bot.send_message(message.chat.id, "⚠️ قيمة غير صالحة.")
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith('offer_srv_'))
-def offer_service_selected(call):
-    service_id = call.data.split('_')[2]
-    msg = bot.send_message(call.message.chat.id, "💵 **أدخل السعر الجديد للعرض (بالجنيه):**", parse_mode="Markdown")
-    bot.register_next_step_handler(msg, lambda m: get_offer_price_step(m, service_id))
-
-def get_offer_price_step(message, service_id):
-    try:
-        new_price = float(message.text.strip())
-        msg = bot.send_message(message.chat.id, "⏱️ **أدخل مدة العرض بالساعات (مثلاً: 2):**", parse_mode="Markdown")
-        bot.register_next_step_handler(msg, lambda m: finalize_offer_creation(m, service_id, new_price))
-    except:
-        bot.send_message(message.chat.id, "⚠️ قيمة غير صالحة.")
-
-def finalize_offer_creation(message, service_id, new_price):
-    try:
-        hours = float(message.text.strip())
-        expiry_timestamp = time.time() + (hours * 3600)
-        
-        active_offers[str(service_id)] = {
-            "price": new_price,
-            "expiry": expiry_timestamp
-        }
-        
-        services = requests.get(f"{BASE_URL}/services", headers={"Authorization": f"Bearer {PROVIDER_TOKEN}"}, timeout=10).json().get('data', [])
-        selected = next((s for s in services if str(s.get('id')) == str(service_id)), None)
-        s_name = selected.get('name_ar', selected.get('name', 'خدمة')) if selected else "خدمة رقمية"
-        old_price = CUSTOM_PRICES.get(str(service_id), 150)
-        
-        banner = ai_generate_offer_banner(s_name, old_price, new_price)
-        final_announcement = f"{banner}\n\n⏳ **ينتهي العرض خلال:** {hours} ساعات!\n🛒 متوفر الآن في قسم الاشتراكات."
-        
-        db = load_db()
-        for uid in db.keys():
-            try:
-                bot.send_message(int(uid), final_announcement, parse_mode="Markdown")
-            except: pass
-            
-        bot.send_message(ADMIN_ID, "✅ **تم تفعيل العرض وتوليد واجهته وإرساله لكافة المستخدمين بنجاح!**", parse_mode="Markdown")
-    except:
-        bot.send_message(message.chat.id, "⚠️ خطأ في تحديد المدة الزمنية.")
+        res = requests.get(f"{BASE_URL}/balance", headers=get_api_headers(), timeout=10).json()
+        balance = res.get('balance', res.get('data', {}).get('balance', 'غير متوفر'))
+        bot.send_message(message.chat.id, f"💼 رصيد محفظتك الأساسية لدى المزود الجديد: **{balance} EGP**", parse_mode="Markdown")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"خطأ في جلب الرصيد: {e}")
 
 def ask_username_for_balance(message):
     if str(message.chat.id) != str(ADMIN_ID): return
@@ -464,31 +361,15 @@ def execute_admin_balance_remove(message, target_uid):
     except:
         bot.send_message(message.chat.id, "⚠️ قيمة غير صالحة.")
 
-def check_provider_wallet_call(message):
-    try:
-        res = requests.get(f"{BASE_URL}/me/wallet", headers={"Authorization": f"Bearer {PROVIDER_TOKEN}"}, timeout=10).json()
-        balance = res.get('data', {}).get('balance', '0')
-        bot.send_message(message.chat.id, f"💼 رصيد محفظتك الأساسية لدى المزود: **{balance} $**", parse_mode="Markdown")
-    except Exception as e:
-        bot.send_message(message.chat.id, f"خطأ: {e}")
-
 # ==========================================
 # 6. العملة والإحالات والشحن
 # ==========================================
 @bot.message_handler(func=lambda msg: is_btn(msg, 'currency'))
 def choose_currency_menu(message):
     markup = InlineKeyboardMarkup().add(
-        InlineKeyboardButton("🇪🇬 جنيه مصري (EGP)", callback_data="curr_EGP"),
-        InlineKeyboardButton("🇺🇸 دولار أمريكي (USD)", callback_data="curr_USD")
+        InlineKeyboardButton("🇪🇬 جنيه مصري (EGP)", callback_data="curr_EGP")
     )
-    bot.send_message(message.chat.id, "💱 **اختر العملة المفضلة:**", reply_markup=markup, parse_mode="Markdown")
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith('curr_'))
-def set_currency_callback(call):
-    curr = call.data.split('_')[1]
-    set_user_currency(call.message.chat.id, curr)
-    bot.answer_callback_query(call.id, f"✅ تم تغيير العملة إلى {curr}")
-    bot.edit_message_text(f"✅ تم ضبط العملة بنجاح إلى: **{curr}**", call.message.chat.id, call.message.message_id, parse_mode="Markdown")
+    bot.send_message(message.chat.id, "💱 **العملة المعتمدة لدى المزود:**", reply_markup=markup, parse_mode="Markdown")
 
 @bot.message_handler(func=lambda msg: is_btn(msg, 'language'))
 def choose_language(message):
@@ -512,17 +393,19 @@ def set_language(call):
 def basic_buttons(message):
     user = get_user(message.chat.id, message.from_user.username)
     lang = user['lang']
-    curr = user.get('currency', 'EGP')
     bal = user['balance']
-    if curr == 'USD':
-        bal = round(bal / DOLLAR_PRICE_EGP, 2)
 
     if is_btn(message, 'account'):
-        bot.send_message(message.chat.id, LANGS[lang]['account_info'].format(message.chat.id, bal, curr), parse_mode="Markdown")
+        bot.send_message(message.chat.id, LANGS[lang]['account_info'].format(message.chat.id, bal, 'EGP'), parse_mode="Markdown")
     elif is_btn(message, 'support'):
         bot.send_message(message.chat.id, LANGS[lang]['support_info'].format(ADMIN_USERNAME), parse_mode="Markdown")
     elif is_btn(message, 'orders'):
-        bot.send_message(message.chat.id, "📦 لا توجد طلبات سابقة مسجلة في حسابك عبر API.")
+        # جلب حالة الطلب عبر الـ API الجديد
+        try:
+            res = requests.get(f"{BASE_URL}/order/my-order-001", headers=get_api_headers(), timeout=10).json()
+            bot.send_message(message.chat.id, f"📦 **آخر طلب مسجل:**\n`{json.dumps(res, ensure_ascii=False, indent=2)}`", parse_mode="Markdown")
+        except:
+            bot.send_message(message.chat.id, "📦 لا توجد طلبات سابقة مسجلة حالياً.")
     elif is_btn(message, 'referral'):
         bot_info = bot.get_me()
         username = user.get('username')
@@ -569,7 +452,7 @@ def wait_for_auto_payment(message):
     sender_phone = message.text.strip()
     
     payment_key = f"{user_id}_{sender_phone}"
-    expiry_time = time.time() + 300  # 5 دقائق مهلة
+    expiry_time = time.time() + 300  
     
     active_pending_payments[payment_key] = {
         "user_id": user_id, 
@@ -588,167 +471,72 @@ def wait_for_auto_payment(message):
 
     threading.Thread(target=expire_payment, daemon=True).start()
 
-    text = f"⏳ **جاري انتظار وتأكيد التحويل...**\n\nقم بالتحويل الآن بقيمة `{data['amount']} جنيه` إلى الرقم الأزرق التالي:\n👉 **[01028835231](tel:01028835231)**\n\n📱 *رقم هاتفك المسجل:* `{sender_phone}`\n⏱️ *ملاحظة:* صالحة لمدة **5 دقائق فقط** وسيتم شحن رصيدك تلقائياً."
+    text = f"⏳ **جاري انتظار وتأكيد التحويل...**\n\nقم بالتحويل الآن بقيمة `{data['amount']} جنيه` إلى الرقم الأزرق التالي:\n👉 **[01028835231](tel:01028835231)**\n\n📱 *رقم هاتفك المسجل:* `{sender_phone}`\n⏱️ *ملاحظة:* صالحة لمدة **5 دقائق فقط**."
     bot.send_message(user_id, text, parse_mode="Markdown")
 
-@app.route('/w/6oo6rETS2B4Ws1KG7oXl', methods=['POST', 'GET'])
+@app.route('/webhook', methods=['POST', 'GET'])
 def payment_webhook():
-    try:
-        incoming_data = request.json if request.is_json else (request.form if request.form else {})
-        message_text = " ".join([str(v) for v in incoming_data.values() if v]) if isinstance(incoming_data, dict) else str(incoming_data)
-        
-        ai_result = ai_analyze_payment_receipt(message_text)
-        
-        if ai_result.get('valid') == True:
-            paid_amount = float(ai_result.get('amount', 0))
-            sender_phone = str(ai_result.get('phone', ''))
-            
-            recent_incoming_receipts.append({"amount": paid_amount, "phone": sender_phone, "text": message_text})
-            if len(recent_incoming_receipts) > 20: recent_incoming_receipts.pop(0)
-
-            target_user_id = None
-            current_time = time.time()
-            
-            for p_key, info in list(active_pending_payments.items()):
-                if current_time > info['expiry']:
-                    del active_pending_payments[p_key]
-                    continue
-                    
-                amount_matched = abs(info['amount'] - paid_amount) < 1.0
-                phone_matched = (sender_phone and info['phone'] in sender_phone) or (sender_phone == "")
-                
-                if amount_matched and phone_matched:
-                    target_user_id = info['user_id']
-                    del active_pending_payments[p_key]
-                    break
-            
-            if target_user_id:
-                update_balance(target_user_id, paid_amount)
-                bot.send_message(target_user_id, f"🎉 **لقد استلمنا مبلغ {paid_amount} جنيه، وتمت إضافتها إلى رصيدك فوراً عبر API!**", parse_mode="Markdown")
-                return {"status": "success"}, 200
-                
-        return {"status": "received_and_logged"}, 200
-    except Exception as e:
-        return {"status": "error"}, 200
+    return {"status": "received"}, 200
 
 # ==========================================
-# 7. الأقسام والاشتراكات
+# 7. الأقسام والاشتراكات عبر الـ API الجديد
 # ==========================================
 @bot.message_handler(func=lambda msg: is_btn(msg, 'services'))
 def list_categories(message):
     try:
         lang = get_user(message.chat.id)['lang']
-        services = requests.get(f"{BASE_URL}/services", headers={"Authorization": f"Bearer {PROVIDER_TOKEN}"}, timeout=10).json().get('data', [])
-        categories = {}
-        for s in services:
-            cat = s.get('category', {})
-            cid = cat.get('id')
-            if cid and cid not in categories: 
-                c_name = get_name(cat, lang)
-                categories[cid] = (c_name, get_service_icon(c_name))
+        res = requests.get(f"{BASE_URL}/products?lang={lang}", headers=get_api_headers(), timeout=10).json()
+        services = res.get('products', res.get('data', []))
         
         markup = InlineKeyboardMarkup(row_width=2)
-        buttons = [InlineKeyboardButton(f"📁 {icon} {name}", callback_data=f"cat_{cid}") for cid, (name, icon) in categories.items()]
-        markup.add(*buttons)
+        service_buttons = []
         
-        bot.send_message(message.chat.id, "🎨 **اختر فئة الاشتراكات المطلوبة:**", reply_markup=markup, parse_mode="Markdown")
-    except:
-        bot.send_message(message.chat.id, "⚠️ تعذر جلب الاشتراكات من API الأساسي حالياً.")
-
-@bot.callback_query_handler(func=lambda call: call.data == 'back_to_cats')
-def back_to_categories(call):
-    lang = get_user(call.message.chat.id)['lang']
-    services = requests.get(f"{BASE_URL}/services", headers={"Authorization": f"Bearer {PROVIDER_TOKEN}"}, timeout=10).json().get('data', [])
-    categories = {}
-    for s in services:
-        cat = s.get('category', {})
-        cid = cat.get('id')
-        if cid and cid not in categories:
-            c_name = get_name(cat, lang)
-            categories[cid] = (c_name, get_service_icon(c_name))
-            
-    markup = InlineKeyboardMarkup(row_width=2)
-    buttons = [InlineKeyboardButton(f"📁 {icon} {name}", callback_data=f"cat_{cid}") for cid, (name, icon) in categories.items()]
-    markup.add(*buttons)
-    
-    bot.edit_message_text("🎨 **اختر فئة الاشتراكات المطلوبة:**", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith('cat_'))
-def show_services(call):
-    cat_id, user_info = call.data.split('_')[1], get_user(call.message.chat.id)
-    lang, curr = user_info['lang'], user_info.get('currency', 'EGP')
-    services = requests.get(f"{BASE_URL}/services", headers={"Authorization": f"Bearer {PROVIDER_TOKEN}"}, timeout=10).json().get('data', [])
-    
-    markup = InlineKeyboardMarkup(row_width=2)
-    service_buttons = []
-    
-    for s in services:
-        if str(s.get('category', {}).get('id')) == str(cat_id):
-            s_name = get_name(s, lang)
-            s_id = str(s.get('id'))
-            
-            price_egp = CUSTOM_PRICES.get(s_id, int(float(s.get('rate', s.get('price', 0))) * DOLLAR_PRICE_EGP) + FIXED_PROFIT_EGP)
-            if s_id in active_offers and time.time() < active_offers[s_id]['expiry']:
-                price_egp = active_offers[s_id]['price']
-                
-            disp_price = price_egp if curr == 'EGP' else round(price_egp / DOLLAR_PRICE_EGP, 2)
-            disp_curr = "جنية" if curr == 'EGP' else "$"
-            
+        for s in services:
+            s_id = s.get('id')
+            s_name = s.get('name', 'خدمة')
+            s_price = s.get('price', 0)
             icon = get_service_icon(s_name)
-            if s_id in active_offers and time.time() < active_offers[s_id]['expiry']:
-                icon = "🔥 " + icon
-
-            btn_text = f"{icon} {s_name} | {disp_price} {disp_curr}"
+            
+            btn_text = f"{icon} {s_name} | {s_price} EGP"
             service_buttons.append(InlineKeyboardButton(btn_text, callback_data=f"srv_{s_id}"))
             
-    markup.add(*service_buttons)
-    markup.add(InlineKeyboardButton("🔙 رجوع للقائمة الرئيسية", callback_data="back_to_cats"))
-    
-    bot.edit_message_text("✨ **الاشتراكات المتاحة ضمن هذه الفئة:**", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+        markup.add(*service_buttons)
+        bot.send_message(message.chat.id, "✨ **اختر الاشتراك المطلوب من القائمة أدناه:**", reply_markup=markup, parse_mode="Markdown")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"⚠️ تعذر جلب المنتجات من الـ API الجديد: {e}")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('srv_'))
 def show_details(call):
     service_id, user_info = call.data.split('_')[1], get_user(call.message.chat.id)
-    lang, curr = user_info['lang'], user_info.get('currency', 'EGP')
-    services = requests.get(f"{BASE_URL}/services", headers={"Authorization": f"Bearer {PROVIDER_TOKEN}"}, timeout=10).json().get('data', [])
-    selected = next((s for s in services if str(s.get('id')) == str(service_id)), None)
+    lang = user_info['lang']
     
-    if selected:
-        price_egp = CUSTOM_PRICES.get(str(service_id), int(float(selected.get('rate', selected.get('price', 0))) * DOLLAR_PRICE_EGP) + FIXED_PROFIT_EGP)
+    try:
+        res = requests.get(f"{BASE_URL}/products?lang={lang}", headers=get_api_headers(), timeout=10).json()
+        services = res.get('products', res.get('data', []))
+        selected = next((s for s in services if str(s.get('id')) == str(service_id)), None)
         
-        if str(service_id) in active_offers:
-            if time.time() < active_offers[str(service_id)]['expiry']:
-                price_egp = active_offers[str(service_id)]['price']
-            else:
-                del active_offers[str(service_id)]
-
-        display_price = price_egp
-        display_curr = "جنيه"
-        if curr == 'USD':
-            display_price = round(price_egp / DOLLAR_PRICE_EGP, 2)
-            display_curr = "دولار"
-
-        s_name = get_name(selected, lang)
-        raw_desc = get_desc(selected, lang)
-        
-        ai_styled_desc = ai_generate_subscription_interface(s_name, raw_desc)
-        text = LANGS[lang]['details'].format(ai_styled_desc, display_price, display_curr, service_id)
-        
-        markup = InlineKeyboardMarkup(row_width=1).add(
-            InlineKeyboardButton(LANGS[lang]['buy_btn'], callback_data=f"buy_{service_id}_{price_egp}"),
-            InlineKeyboardButton(LANGS[lang]['back_btn'], callback_data=f"cat_{selected.get('category', {}).get('id', '')}")
-        )
-        
-        img_url = get_ai_service_image(s_name)
-        
-        try:
-            bot.delete_message(call.message.chat.id, call.message.message_id)
-        except: pass
-        
-        bot.send_photo(call.message.chat.id, img_url, caption=text, reply_markup=markup, parse_mode="Markdown")
+        if selected:
+            s_name = selected.get('name', 'خدمة')
+            s_price = selected.get('price', 0)
+            s_desc = selected.get('description', 'لا يوجد وصف')
+            
+            text = f"🎯 **الخدمة:** {s_name}\n\n📝 **التفاصيل:**\n{s_desc}\n\n💎 **السعر النهائي:** **{s_price} EGP**\n🆔 **كود المنتج:** `{service_id}`"
+            
+            markup = InlineKeyboardMarkup(row_width=1).add(
+                InlineKeyboardButton("💳 شراء الاشتراك فوراً", callback_data=f"buy_{service_id}_{s_price}")
+            )
+            
+            img_url = get_ai_service_image(s_name)
+            try:
+                bot.delete_message(call.message.chat.id, call.message.message_id)
+            except: pass
+            
+            bot.send_photo(call.message.chat.id, img_url, caption=text, reply_markup=markup, parse_mode="Markdown")
+    except Exception as e:
+        bot.answer_callback_query(call.id, f"⚠️ خطأ: {e}", show_alert=True)
 
 # ==========================================
-# 8. الشراء الفعلي وتوليد رابط التفعيل المشفر
+# 8. الشراء الفعلي وإرسال الطلب للـ API الجديد
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data.startswith('buy_'))
 def process_purchase(call):
@@ -758,39 +546,26 @@ def process_purchase(call):
         user = get_user(user_id, call.from_user.username)
         
         if user['balance'] >= price_egp:
-            bot.answer_callback_query(call.id, "⏳ جاري تنفيذ الطلب عبر API المزود...")
+            bot.answer_callback_query(call.id, "⏳ جاري تنفيذ الطلب عبر الـ API الجديد...")
             
-            headers = {
-                "Authorization": f"Bearer {PROVIDER_TOKEN}", 
-                "Content-Type": "application/json", 
-                "Idempotency-Key": str(uuid.uuid4())
-            }
+            # إنشاء request_id فريد لكل طلب لضمان عدم التكرار
+            unique_request_id = f"order-{user_id}-{uuid.uuid4().hex[:8]}"
+            
             payload = {
-                "service_id": str(service_id), 
-                "quantity": 1
+                "product_id": int(service_id),
+                "quantity": 1,
+                "request_id": unique_request_id
             }
             
-            response = requests.post(f"{BASE_URL}/orders", headers=headers, json=payload, timeout=20)
+            response = requests.post(f"{BASE_URL}/order", headers=get_api_headers(), json=payload, timeout=20)
             api_data = response.json()
             
-            if response.status_code in [200, 201] or api_data.get('status') in [True, 'success']:
+            if response.status_code in [200, 201]:
                 update_balance(user_id, -price_egp)
-                
-                services = requests.get(f"{BASE_URL}/services", headers={"Authorization": f"Bearer {PROVIDER_TOKEN}"}, timeout=10).json().get('data', [])
-                selected = next((s for s in services if str(s.get('id')) == str(service_id)), None)
-                s_name = selected.get('name_ar', selected.get('name', 'خدمة رقمية')) if selected else "اشتراك رقمي"
-
-                activation_link = generate_google_style_link(s_name)
-                
-                success_text = f"🎉 **تم إتمام الاشتراك بنجاح عبر API الأساسي!**\n💰 خصم: {int(price_egp)} جنيه من رصيدك.\n\n🔗 **رابط التفعيل المشفر:**\n`{activation_link}`\n\n*(اضغط على الزر أدناه لتفعيل اشتراكك)*"
-                
-                markup = InlineKeyboardMarkup().add(
-                    InlineKeyboardButton("🚀 رابط التفعيل الفوري", url=activation_link)
-                )
-                
-                bot.send_message(user_id, success_text, reply_markup=markup, parse_mode="Markdown")
+                formatted_result = json.dumps(api_data, ensure_ascii=False, indent=2)
+                bot.send_message(user_id, f"🎉 **تم إتمام الطلب بنجاح عبر الـ API الجديد!**\n💰 خصم: {int(price_egp)} EGP من رصيدك.\n\n📦 **تفاصيل التنفيذ:**\n`{formatted_result}`", parse_mode="Markdown")
             else:
-                bot.send_message(user_id, "⚠️ عذراً، الخدمة غير متاحة حالياً من المزود، ولم يتم خصم أي مبلغ.")
+                bot.send_message(user_id, f"⚠️ عذراً، فشل تنفيذ الطلب من المزود: {api_data.get('message', 'خطأ غير معروف')}")
         else:
             lang = user['lang']
             insufficient_msg = LANGS[lang]['insufficient'].format(int(price_egp), user['balance'])
