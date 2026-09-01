@@ -183,16 +183,6 @@ def get_service_icon(name):
     if any(x in n for x in ['vpn', 'ترجام', 'proxy']): return '🔒'
     return '💎'
 
-def get_ai_service_image(service_name):
-    n = service_name.lower()
-    if 'netflix' in n: return "https://images.unsplash.com/photo-1574375927938-d5a98e8ffe85?q=80&w=800&auto=format&fit=crop"
-    if 'chatgpt' in n or 'gpt' in n or 'openai' in n: return "https://images.unsplash.com/photo-1677442136019-21780efad99a?q=80&w=800&auto=format&fit=crop"
-    if 'gemini' in n or 'جيميناي' in n: return "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?q=80&w=800&auto=format&fit=crop"
-    if 'canva' in n or 'تصميم' in n: return "https://images.unsplash.com/photo-1626785774573-4b799315345d?q=80&w=800&auto=format&fit=crop"
-    if 'shahid' in n or 'شاهد' in n: return "https://images.unsplash.com/photo-1593784991095-a205069470b6?q=80&w=800&auto=format&fit=crop"
-    if 'vpn' in n: return "https://images.unsplash.com/photo-1563986768609-322da13575f3?q=80&w=800&auto=format&fit=crop"
-    return "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=800&auto=format&fit=crop"
-
 translation_cache = {}
 
 def translate_text(text, target_lang):
@@ -236,7 +226,7 @@ LANGS = {
         'account_info': "👤 **معلومات حسابك الشخصي:**\n\n🆔 رقم الحساب: `{}`\n💰 الرصيد المتاح: **{} {}**",
         'support_info': "💬 **للتواصل مع الدعم الفني:**\n\nالمسؤول: {}",
         'choose_cat': "🎨 **اختر فئة الاشتراكات المطلوبة:**", 'available_serv': "✨ **اختر الاشتراك المطلوب:**",
-        'details': "{} \n\n💎 **السعر النهائي:** **{} {}**\n🆔 **كود الاشتراك:** `{}`"
+        'details': "🎯 **الخدمة:** {}\n\n📝 **التفاصيل:**\n{}\n\n💎 **السعر النهائي:** **{} EGP**\n🆔 **كود الاشتراك:** `{}`"
     }
 }
 LANGS['en'] = {k: translate_text(v, 'en') for k, v in LANGS['ar'].items()}
@@ -519,18 +509,18 @@ def show_details(call):
             s_price = selected.get('price', 0)
             s_desc = selected.get('description', 'لا يوجد وصف')
             
-            text = f"🎯 **الخدمة:** {s_name}\n\n📝 **التفاصيل:**\n{s_desc}\n\n💎 **السعر النهائي:** **{s_price} EGP**\n🆔 **كود المنتج:** `{service_id}`"
+            text = LANGS[lang]['details'].format(s_name, s_desc, s_price, service_id)
             
             markup = InlineKeyboardMarkup(row_width=1).add(
-                InlineKeyboardButton("💳 شراء الاشتراك فوراً", callback_data=f"buy_{service_id}_{s_price}")
+                InlineKeyboardButton(LANGS[lang]['buy_btn'], callback_data=f"buy_{service_id}_{s_price}")
             )
             
-            img_url = get_ai_service_image(s_name)
             try:
                 bot.delete_message(call.message.chat.id, call.message.message_id)
             except: pass
             
-            bot.send_photo(call.message.chat.id, img_url, caption=text, reply_markup=markup, parse_mode="Markdown")
+            # إرسال رسالة نصية تفصيلية آمنة 100% بدون صور خارجية لتجنب أخطاء الـ URL
+            bot.send_message(call.message.chat.id, text, reply_markup=markup, parse_mode="Markdown")
     except Exception as e:
         bot.answer_callback_query(call.id, f"⚠️ خطأ: {e}", show_alert=True)
 
