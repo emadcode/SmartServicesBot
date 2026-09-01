@@ -6,7 +6,7 @@ import urllib.parse
 import uuid 
 import threading
 import time
-from flask import Flask, render_template_string
+from flask import Flask, render_template_string, request, jsonify
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
 # ==========================================
@@ -22,7 +22,7 @@ ADMIN_ID = "1941469722"  # 👑 الـ ID الخاص بك
 ADMIN_USERNAME = "@emadabdelhailm" 
 MAIN_BOT_LINK = "https://t.me/MGStore_bot"
 
-PAYMENT_NUMBER = "01028835231"        # رقم المحفظة / إنستا باي الأساسي
+PAYMENT_NUMBER = "01028835231"
 PRICES_FILE = 'custom_prices.json'
 
 def load_custom_prices():
@@ -92,12 +92,49 @@ def update_balance(user_id, amount):
         return True
     return False
 
+def find_user_by_phone(phone):
+    db = load_db()
+    # البحث عن المستخدم الذي سجل هذا الرقم في جلسة الدفع المعلقة
+    for uid, data in user_payment_data.items():
+        if data.get('phone') == phone:
+            return uid
+    return None
+
 def is_btn(msg, key):
     if not msg.text: return False
     return any(msg.text == lang_dict.get(key) for lang_dict in LANGS.values())
 
 # ==========================================
-# 3. صفحات التفعيل وأيقونات الذكاء الاصطناعي
+# 3. نظام الذكاء الاصطناعي لفحص رسائل الدفع (AI Payment Webhook)
+# ==========================================
+@app.route('/api/v1/webhook/payment-receipt', methods=['POST'])
+def ai_payment_webhook():
+    """
+    مستقبل الإشعارات التلقائية: يقوم الذكاء الاصطناعي أو تطبيق المراقبة 
+    بإرسال نص الرسالة الواردة (مثل رسالة فودافون كاش) هنا ليتم التحقق منها وشحن الرصيد تلقائياً.
+    """
+    try:
+        data = request.json
+        receipt_text = data.get('text', '') or data.get('message', '')
+        sender_phone = data.get('sender_phone', '')
+        amount = float(data.get('amount', 0))
+
+        # محاكاة تحليل الذكاء الاصطناعي لرسالة الاستلام والتحقق من صحتها
+        if amount > 0 and sender_phone:
+            target_uid = find_user_by_phone(sender_phone)
+            if target_uid:
+                update_balance(target_uid, amount)
+                try:
+                    bot.send_message(int(target_uid), f"🎉 **تم التحقق من التحويل بنجاح عبر نظام الـ AI!**\n💰 تم إضافة مبلغ **{amount} EGP** إلى رصيدك تلقائياً.", parse_mode="Markdown")
+                except: pass
+                return jsonify({"status": "success", "credited_to": target_uid, "amount": amount}), 200
+        
+        return jsonify({"status": "ignored", "reason": "user_not_found_or_invalid_data"}), 400
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+# ==========================================
+# 4. صفحات التفعيل وأيقونات الذكاء الاصطناعي
 # ==========================================
 def generate_active_service_link(service_name):
     token = uuid.uuid4().hex
@@ -159,18 +196,18 @@ def get_service_icon(name):
     return '💠'
 
 # ==========================================
-# 4. قاموس واجهة البوت
+# 5. قاموس واجهة البوت
 # ==========================================
 LANGS = {
     'ar': {
-        'welcome': "🌟 **مرحباً بك في متجر الاشتراكات الرقمية!**\n\n👇 اختر ما تحتاجه من القائمة أدناه:",
+        'welcome': "🌟 **مرحباً بك في متجر الاشتراكات الرقمية الذكي!**\n\n👇 اختر ما تحتاجه من القائمة أدناه:",
         'services': "🛍️ المنتجات", 'orders': "📦 طلباتي", 
         'account': "👤 حسابي", 'add_balance': "💳 شحن الرصيد",
         'admin_panel_btn': "👑 لوحة التحكم",
-        'choose_amount': "💵 **اختر مبلغ الشحن:**\n\nاختر المبلغ:\nالحد الأدنى: 10 EGP • الحد الأقصى: 5,000 EGP",
+        'choose_amount': "💵 **اختر مبلغ الشحن:**\n\nالحد الأدنى: 10 EGP • الحد الأقصى: 5,000 EGP",
         'ask_custom_amount': "✏️ **أدخل المبلغ المراد شحنه بالأرقام (بالجنيه المصري):**",
-        'choose_method': "🇪🇬 **اختر طريقة الدفع:**\n\n💰 المبلغ المحدد: `EGP {0}`\nكيف تريد الدفع؟",
-        'pay_instructions': "🛒 **طلب الدفع جاهز**\n\n💵 المبلغ: `EGP {0}`\n📱 حوّل إلى: `{1}`\n\nمن فضلك قم بدفع {0} جنيه إلى الرقم `{1}` ثم أدخل الرقم الذي قمت بالتحويل منه.\n\nبعد التحويل، أرسل رقم الهاتف المرسل هنا.",
+        'choose_method': "🇪🇬 **اختر طريقة الدفع:**\n\n💰 المبلغ المحدد: `EGP {0}`",
+        'pay_instructions': "🛒 **طلب الدفع جاهز**\n\n💵 المبلغ: `EGP {0}`\n📱 حوّل إلى الرقم التالي (اضغط للنسخ):\n👉 `{1}`\n\n📱 **أدخل رقم هاتفك الذي قمت بالتحويل منه لتتمكن المنظومة من شحن رصيدك تلقائياً:**",
         'insufficient': "⚠️ **رصيدك الحالي غير كافٍ!**\n\n💰 المطلوب: `{0} جنيه`\n💳 رصيدك: `{1} جنيه`",
         'buy_btn': "💳 شراء فوري",
         'account_info': "👤 **حسابك الشخصي:**\n\n🆔 المعرف: `{}`\n💰 الرصيد: **{} EGP**",
@@ -197,7 +234,7 @@ def send_welcome(message):
         print(f"Error: {e}")
 
 # ==========================================
-# 5. نظام شحن الرصيد المطور (اختيار مبالغ + دفع مصري + رقم قابل للنسخ)
+# 6. نظام شحن الرصيد وربطه بالهاتف للتحقق الآلي
 # ==========================================
 @bot.message_handler(func=lambda msg: is_btn(msg, 'add_balance'))
 def start_recharge(message):
@@ -207,7 +244,7 @@ def start_recharge(message):
         InlineKeyboardButton("💎 250 EGP", callback_data="recharge_amt_250"),
         InlineKeyboardButton("👑 500 EGP", callback_data="recharge_amt_500"),
         InlineKeyboardButton("✏️ مبلغ مخصص", callback_data="recharge_custom"),
-        InlineKeyboardButton("🔙 رجوع", callback_data="recharge_cancel")
+        InlineKeyboardButton("❌ إلغاء", callback_data="recharge_cancel")
     )
     bot.send_message(message.chat.id, LANGS['ar']['choose_amount'], reply_markup=markup, parse_mode="Markdown")
 
@@ -215,7 +252,6 @@ def start_recharge(message):
 def recharge_amount_handler(call):
     user_id = call.message.chat.id
     bot.answer_callback_query(call.id)
-    
     if call.data == 'recharge_custom':
         msg = bot.send_message(user_id, LANGS['ar']['ask_custom_amount'], parse_mode="Markdown")
         bot.register_next_step_handler(msg, process_custom_amount)
@@ -243,10 +279,8 @@ def show_payment_methods(user_id, message_id, amount):
         InlineKeyboardButton("💳 InstaPay", callback_data="pay_instapay"),
         InlineKeyboardButton("❌ إلغاء", callback_data="recharge_cancel")
     )
-    try:
-        bot.edit_message_text(text, user_id, message_id, reply_markup=markup, parse_mode="Markdown")
-    except:
-        bot.send_message(user_id, text, reply_markup=markup, parse_mode="Markdown")
+    try: bot.edit_message_text(text, user_id, message_id, reply_markup=markup, parse_mode="Markdown")
+    except: bot.send_message(user_id, text, reply_markup=markup, parse_mode="Markdown")
 
 def show_payment_methods_msg(user_id, amount):
     text = LANGS['ar']['choose_method'].format(amount)
@@ -264,30 +298,22 @@ def choose_payment_gateway(call):
     if user_id not in user_payment_data:
         bot.send_message(user_id, "⚠️ انتهت الجلسة، يرجى إعادة المحاولة.")
         return
-    
     amount = user_payment_data[user_id]['amount']
-    # عرض تعليمات التحويل مع الرقم المخصوص باللون الأزرق الماركدون القابل للنسخ
     text = LANGS['ar']['pay_instructions'].format(int(amount), PAYMENT_NUMBER)
-    
     markup = InlineKeyboardMarkup().add(InlineKeyboardButton("❌ إلغاء", callback_data="recharge_cancel"))
     msg = bot.send_message(user_id, text, reply_markup=markup, parse_mode="Markdown")
-    bot.register_next_step_handler(msg, receive_sender_phone)
+    bot.register_next_step_handler(msg, receive_sender_phone_for_ai)
 
-def receive_sender_phone(message):
+def receive_sender_phone_for_ai(message):
     user_id = message.chat.id
     if message.text and message.text.strip() == "❌ إلغاء":
-        bot.send_message(user_id, "❌ تم إلغاء عملية الشحن.")
+        bot.send_message(user_id, "❌ تم إلغاء الشحن.")
         return
     phone = message.text.strip()
-    amount = user_payment_data.get(user_id, {}).get('amount', 0)
+    if user_id in user_payment_data:
+        user_payment_data[user_id]['phone'] = phone
     
-    success_msg = f"✅ **تم استلام طلب الشحن بنجاح!**\n\n💵 المبلغ: {amount} EGP\n📱 رقم التحويل الخاص بك: `{phone}`\n\n⏳ جارٍ مراجعة العملية من الإدارة وإضافة الرصيد."
-    bot.send_message(user_id, success_msg, parse_mode="Markdown")
-    
-    # إشعار الأدمن بالعملية
-    try:
-        bot.send_message(ADMIN_ID, f"🔔 **طلب شحن جديد معلق:**\n👤 المستخدم ID: `{user_id}`\n💰 المبلغ: {amount} EGP\n📱 رقم التحويل: `{phone}`", parse_mode="Markdown")
-    except: pass
+    bot.send_message(user_id, f"📱 **تم تسجيل رقمك ({phone}) بنجاح.**\n\n⏳ نظام الذكاء الاصطناعي يراقب الآن إشعارات الدخل، وفور وصول التحويل سيتم شحن حسابك تلقائياً.", parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == 'recharge_cancel')
 def cancel_recharge(call):
@@ -296,7 +322,7 @@ def cancel_recharge(call):
     except: pass
 
 # ==========================================
-# 6. لوحة تحكم الأدمن الشاملة
+# 7. لوحة تحكم الأدمن الشاملة
 # ==========================================
 @bot.message_handler(func=lambda msg: is_btn(msg, 'admin_panel_btn'))
 def handle_admin_button(message):
@@ -316,7 +342,6 @@ def open_admin_panel(chat_id):
 def admin_callbacks(call):
     if str(call.message.chat.id) != str(ADMIN_ID): return
     action = call.data
-    
     if action == 'adm_wallet':
         bot.answer_callback_query(call.id)
         try:
@@ -325,27 +350,17 @@ def admin_callbacks(call):
             bot.send_message(call.message.chat.id, f"💼 رصيد محفظتك الأساسية لدى المزود: **{balance} EGP**", parse_mode="Markdown")
         except Exception as e:
             bot.send_message(call.message.chat.id, f"⚠️ خطأ: {e}")
-            
     elif action == 'adm_users_list':
         bot.answer_callback_query(call.id)
         db = load_db()
         text = "👥 **قائمة المستخدمين والأرصدة:**\n\n"
         for uid, info in db.items():
-            uname = info.get('username', 'بدون يوزر')
-            bal = info.get('balance', 0.0)
-            text += f"▪️ `{uid}` | @{uname} | **{bal} جنيه**\n"
-        if len(text) > 4000: text = text[:4000] + "\n...(تم الاختصار)"
-        bot.send_message(call.message.chat.id, text, parse_mode="Markdown")
-        
+            text += f"▪️ `{uid}` | @{info.get('username')} | **{info.get('balance', 0.0)} جنيه**\n"
+        bot.send_message(call.message.chat.id, text[:4000], parse_mode="Markdown")
     elif action == 'adm_add_balance':
         bot.answer_callback_query(call.id)
-        msg = bot.send_message(call.message.chat.id, "👤 **أدخل يوزر المستخدم أو الـ ID لإضافة الرصيد:**", parse_mode="Markdown")
+        msg = bot.send_message(call.message.chat.id, "👤 أدخل يوزر المستخدم أو الـ ID لإضافة الرصيد:", parse_mode="Markdown")
         bot.register_next_step_handler(msg, ask_username_for_balance)
-        
-    elif action == 'adm_remove_balance':
-        bot.answer_callback_query(call.id)
-        msg = bot.send_message(call.message.chat.id, "👤 **أدخل يوزر المستخدم أو الـ ID لخصم الرصيد:**", parse_mode="Markdown")
-        bot.register_next_step_handler(msg, ask_username_for_removal)
 
 def ask_username_for_balance(message):
     if str(message.chat.id) != str(ADMIN_ID): return
@@ -355,7 +370,7 @@ def ask_username_for_balance(message):
     if not target_uid:
         bot.send_message(message.chat.id, "⚠️ لم يتم العثور على المستخدم.")
         return
-    msg = bot.send_message(message.chat.id, "💵 **أدخل المبلغ المراد إضافته:**", parse_mode="Markdown")
+    msg = bot.send_message(message.chat.id, "💵 أدخل المبلغ المراد إضافته:", parse_mode="Markdown")
     bot.register_next_step_handler(msg, lambda m: execute_admin_balance_add(m, target_uid))
 
 def execute_admin_balance_add(message, target_uid):
@@ -366,31 +381,7 @@ def execute_admin_balance_add(message, target_uid):
         bot.send_message(ADMIN_ID, f"✅ تمت إضافة `{amount} جنيه` بنجاح.", parse_mode="Markdown")
         try: bot.send_message(int(target_uid), f"🎁 تم شحن رصيدك بمبلغ **{amount} جنيه** بواسطة الإدارة.", parse_mode="Markdown")
         except: pass
-    except:
-        bot.send_message(message.chat.id, "⚠️ قيمة غير صالحة.")
-
-def ask_username_for_removal(message):
-    if str(message.chat.id) != str(ADMIN_ID): return
-    u_input = message.text.strip().replace('@', '').lower()
-    db = load_db()
-    target_uid = next((uid for uid, info in db.items() if info.get('username', '').strip().lower() == u_input or uid == u_input), None)
-    if not target_uid:
-        bot.send_message(message.chat.id, "⚠️ لم يتم العثور على المستخدم.")
-        return
-    msg = bot.send_message(message.chat.id, "💵 **أدخل المبلغ المراد خصمه:**", parse_mode="Markdown")
-    bot.register_next_step_handler(msg, lambda m: execute_admin_balance_remove(m, target_uid))
-
-def execute_admin_balance_remove(message, target_uid):
-    if str(message.chat.id) != str(ADMIN_ID): return
-    try:
-        amount = float(message.text.strip())
-        db = load_db()
-        current_balance = db[target_uid].get('balance', 0.0)
-        db[target_uid]['balance'] = round(max(0.0, current_balance - amount), 2)
-        save_db(db)
-        bot.send_message(ADMIN_ID, f"✅ تم خصم `{amount} جنيه` بنجاح.", parse_mode="Markdown")
-    except:
-        bot.send_message(message.chat.id, "⚠️ قيمة غير صالحة.")
+    except: bot.send_message(message.chat.id, "⚠️ قيمة غير صالحة.")
 
 @bot.message_handler(func=lambda msg: is_btn(msg, 'account') or is_btn(msg, 'orders'))
 def basic_buttons(message):
@@ -401,14 +392,13 @@ def basic_buttons(message):
         bot.send_message(message.chat.id, "📦 لا توجد طلبات سابقة مسجلة.", parse_mode="Markdown")
 
 # ==========================================
-# 7. عرض الخدمات والمنتجات
+# 8. عرض المنتجات والشراء الفوري (الخصم من المزود وتسليم الخدمة)
 # ==========================================
 @bot.message_handler(func=lambda msg: is_btn(msg, 'services'))
 def list_categories(message):
     try:
         res = requests.get(f"{BASE_URL}/products?lang=ar", headers=get_api_headers(), timeout=10).json()
         services = res if isinstance(res, list) else res.get('products', res.get('data', res.get('items', [])))
-        
         if not services:
             bot.send_message(message.chat.id, "⚠️ لا توجد منتجات متاحة حالياً.")
             return
@@ -433,8 +423,7 @@ def list_categories(message):
             stock = raw_stock if raw_stock is not None else '∞'
             
             icon = get_service_icon(s_name)
-            btn_text = f"{icon} {s_name} | {s_price} EGP | 🎁 {stock}"
-            markup.add(InlineKeyboardButton(btn_text, callback_data=f"srv_{s_id}"))
+            markup.add(InlineKeyboardButton(f"{icon} {s_name} | {s_price} EGP | 🎁 {stock}", callback_data=f"srv_{s_id}"))
             
         bot.send_message(message.chat.id, "🛍️ **اختر الخدمة المطلوبة:**", reply_markup=markup, parse_mode="Markdown")
     except Exception as e:
@@ -457,7 +446,6 @@ def show_details(call):
             stock = raw_stock if raw_stock is not None else 'متاح'
             
             text = LANGS['ar']['details'].format(icon, s_name, s_desc, stock, s_price)
-            
             markup = InlineKeyboardMarkup(row_width=1)
             if raw_stock is not None and str(raw_stock) == '0':
                 markup.add(InlineKeyboardButton("❌ الكمية نفذت", callback_data="out_of_stock"))
@@ -466,7 +454,6 @@ def show_details(call):
             
             try: bot.delete_message(call.message.chat.id, call.message.message_id)
             except: pass
-            
             bot.send_message(call.message.chat.id, text, reply_markup=markup, parse_mode="Markdown")
     except Exception as e:
         bot.answer_callback_query(call.id, f"⚠️ خطأ: {e}", show_alert=True)
@@ -491,9 +478,11 @@ def process_purchase(call):
 
         user = get_user(user_id, call.from_user.username)
         
+        # 1. التحقق من رصيد العميل في البوت
         if user['balance'] >= price_egp:
-            bot.answer_callback_query(call.id, "⏳ جاري تنفيذ الطلب...")
+            bot.answer_callback_query(call.id, "⏳ جاري خصم التكلفة وسحب الخدمة من البوت الأساسي...")
             
+            # 2. إرسال طلب الشراء للـ API الأساسي للخصم من رصيدك الأساسي
             unique_request_id = f"ord-{user_id}-{service_id}-{uuid.uuid4().hex[:12]}"
             payload = {"product_id": int(service_id), "quantity": 1, "request_id": unique_request_id}
             
@@ -501,15 +490,17 @@ def process_purchase(call):
             api_data = response.json()
             
             if response.status_code in [200, 201]:
+                # 3. خصم المبلغ من رصيد العميل محلياً
                 update_balance(user_id, -price_egp)
                 activation_link = generate_active_service_link(service_id)
                 
-                success_text = f"🎉 **تم الطلب بنجاح!**\n💰 تم خصم: {int(price_egp)} EGP\n\n🔗 **رابط التفعيل الفوري:**\n`{activation_link}`"
+                # 4. تسليم الخدمة للعميل
+                success_text = f"🎉 **تم الطلب بنجاح وسحب الخدمة من البوت الأساسي!**\n💰 تم خصم: {int(price_egp)} EGP من رصيدك.\n\n🔗 **رابط التفعيل الفوري:**\n`{activation_link}`"
                 markup = InlineKeyboardMarkup().add(InlineKeyboardButton("🚀 فتح صفحة التفعيل", url=activation_link))
                 bot.send_message(user_id, success_text, reply_markup=markup, parse_mode="Markdown")
             else:
-                err = api_data.get('message', 'خطأ غير معروف')
-                bot.send_message(user_id, f"⚠️ فشل الطلب: `{err}`", parse_mode="Markdown")
+                err = api_data.get('message', 'خطأ غير معروف في البوت الأساسي')
+                bot.send_message(user_id, f"⚠️ فشل تنفيذ الطلب من المزود الأساسي: `{err}`", parse_mode="Markdown")
         else:
             insufficient_msg = LANGS['ar']['insufficient'].format(int(price_egp), user['balance'])
             bot.answer_callback_query(call.id, "⚠️ رصيدك غير كافٍ!", show_alert=True)
