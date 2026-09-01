@@ -4,17 +4,16 @@ import requests
 import json
 import urllib.parse
 import uuid 
-import re
 import threading
 import time
-from flask import Flask, request, render_template_string
+from flask import Flask, render_template_string
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
 # ==========================================
-# 1. إعدادات البوت والبيانات الأساسية (الربط بالـ API الجديد)
+# 1. إعدادات البوت والبيانات الأساسية (مع مفتاح الـ API الجديد)
 # ==========================================
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "mgapi_EiLCO4JXGXJhugqzFS6KpGu6tZmLLxMzs4IBKHIdXoU")
-API_KEY = os.environ.get("API_KEY", "mgapi_EiLCO4JXGXJhugqzFS6KpGu6tZmLLxMzs4IBKHIdXoU")  # مفتاح الـ API الجديد
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
+API_KEY = "mgapi_EiLCO4JXGXJhugqzFS6KpGu6tZmLLxMzs4IBKHIdXoU"  # مفتاح الـ API الجديد المعتمد
 BASE_URL = "https://tubular-sensually-stability.ngrok-free.dev/api/v1"
 
 RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://your-bot-app.onrender.com")
@@ -24,7 +23,6 @@ ADMIN_USERNAME = "@emadabdelhailm"
 
 PAYMENT_NUMBER = "01028835231"        # رقم المحفظة / إنستا باي
 
-FIXED_PROFIT_EGP = 100 
 PRICES_FILE = 'custom_prices.json'
 
 def load_custom_prices():
@@ -41,6 +39,9 @@ def save_custom_prices(prices):
 CUSTOM_PRICES = load_custom_prices()
 active_offers = {} 
 
+if not BOT_TOKEN or ":" not in BOT_TOKEN:
+    raise ValueError("⚠️ خطأ حرجي: متغير البيئة BOT_TOKEN غير مضبوط أو لا يحتوي على الفاصلة الرأسية (:). يرجى ضبطه في لوحة التحكم.")
+
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
@@ -48,7 +49,6 @@ active_pending_payments = {}
 recent_incoming_receipts = []
 ACTIVATION_DB = {}
 
-# دالة لتجهيز Headers للاتصال بالـ API الجديد
 def get_api_headers():
     return {
         "Authorization": f"Bearer {API_KEY}",
@@ -124,7 +124,7 @@ def is_btn(msg, key):
     return any(msg.text == lang_dict.get(key) for lang_dict in LANGS.values())
 
 # ==========================================
-# 3. مساعدات الذكاء الاصطناعي والتخزين المؤقت للروابط
+# 3. صفحات التفعيل والخدمات المساعدة
 # ==========================================
 def generate_active_service_link(service_name):
     token = uuid.uuid4().hex
@@ -400,7 +400,6 @@ def basic_buttons(message):
     elif is_btn(message, 'support'):
         bot.send_message(message.chat.id, LANGS[lang]['support_info'].format(ADMIN_USERNAME), parse_mode="Markdown")
     elif is_btn(message, 'orders'):
-        # جلب حالة الطلب عبر الـ API الجديد
         try:
             res = requests.get(f"{BASE_URL}/order/my-order-001", headers=get_api_headers(), timeout=10).json()
             bot.send_message(message.chat.id, f"📦 **آخر طلب مسجل:**\n`{json.dumps(res, ensure_ascii=False, indent=2)}`", parse_mode="Markdown")
@@ -548,7 +547,6 @@ def process_purchase(call):
         if user['balance'] >= price_egp:
             bot.answer_callback_query(call.id, "⏳ جاري تنفيذ الطلب عبر الـ API الجديد...")
             
-            # إنشاء request_id فريد لكل طلب لضمان عدم التكرار
             unique_request_id = f"order-{user_id}-{uuid.uuid4().hex[:8]}"
             
             payload = {
@@ -562,8 +560,18 @@ def process_purchase(call):
             
             if response.status_code in [200, 201]:
                 update_balance(user_id, -price_egp)
-                formatted_result = json.dumps(api_data, ensure_ascii=False, indent=2)
-                bot.send_message(user_id, f"🎉 **تم إتمام الطلب بنجاح عبر الـ API الجديد!**\n💰 خصم: {int(price_egp)} EGP من رصيدك.\n\n📦 **تفاصيل التنفيذ:**\n`{formatted_result}`", parse_mode="Markdown")
+                
+                services = requests.get(f"{BASE_URL}/products?lang=ar", headers=get_api_headers(), timeout=10).json().get('products', [])
+                selected = next((s for s in services if str(s.get('id')) == str(service_id)), None)
+                s_name = selected.get('name', 'اشتراك رقمي') if selected else "اشتراك رقمي"
+
+                activation_link = generate_active_service_link(s_name)
+                
+                success_text = f"🎉 **تم إتمام الطلب بنجاح عبر الـ API الجديد!**\n💰 خصم: {int(price_egp)} EGP من رصيدك.\n\n🔗 **رابط التفعيل الفعال:**\n`{activation_link}`\n\n*(اضغط على الزر أدناه لتفعيل اشتراكك)*"
+                markup = InlineKeyboardMarkup().add(
+                    InlineKeyboardButton("🚀 فتح صفحة التفعيل", url=activation_link)
+                )
+                bot.send_message(user_id, success_text, reply_markup=markup, parse_mode="Markdown")
             else:
                 bot.send_message(user_id, f"⚠️ عذراً، فشل تنفيذ الطلب من المزود: {api_data.get('message', 'خطأ غير معروف')}")
         else:
